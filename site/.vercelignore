@@ -1,0 +1,5 @@
+# The site is deployed from this folder; og-card.html is only the source of og.png.
+og-card.html
+
+# Vercel CLI token from `vercel pull`; never deploy it.
+.env*

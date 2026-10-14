@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- Source of og.png (1200×630). Render: see the comment at the end. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Peras share card</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@800&family=Manrope:wght@500;700;800&display=swap">
+<style>
+  html, body { margin: 0; background: #0b0d0c; }
+  .card { width: 1200px; height: 630px; box-sizing: border-box; padding: 72px 80px 60px; display: grid; grid-template-columns: 240px 1fr; grid-template-rows: 1fr auto; column-gap: 72px; color: #edf1e9; font-family: Manrope, sans-serif; }
+  .pear { width: 240px; height: 240px; align-self: center; }
+  .name { display: flex; align-items: center; gap: 6px; font: 800 52px/1 "JetBrains Mono", monospace; letter-spacing: -0.02em; }
+  .name i { display: inline-block; width: 26px; height: 48px; background: #b7f34a; }
+  h1 { margin: 28px 0 0; font-weight: 800; font-size: 54px; line-height: 1.06; letter-spacing: -0.04em; }
+  h1 span { color: #b7f34a; }
+  .foot { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding-top: 28px; border-top: 1px solid #1d231e; font-size: 22px; color: #a6afa3; }
+  .brand { display: flex; align-items: center; gap: 12px; color: #edf1e9; }
+  .brand b { font-weight: 700; letter-spacing: -0.055em; }
+  .brand b span { color: #b7f34a; }
+  .brand em { font-style: normal; color: #a6afa3; font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="card">
+  <svg class="pear" viewBox="0 -1 16 16" shape-rendering="crispEdges" aria-hidden="true"><path d="M7 3h3v1h-3zM6 4h5v2h-5zM5 6h7v1h-7zM4 7h9v1h-9zM3 8h11v4h-11zM4 12h9v1h-9zM5 13h7v1h-7z" fill="#b7f34a"/><path d="M5 8h1v2h-1z" fill="#e4fbb8"/><path d="M8 1h1v2h-1z" fill="#edf1e9"/><path d="M9 1h2v1h-2zM10 0h2v1h-2z" fill="#7fa933"/></svg>
+  <div style="align-self: center">
+    <div class="name">peras<i></i></div>
+    <h1>Stop Claude Code or Codex before it burns <span>the rest of your limit.</span></h1>
+  </div>
+  <div class="foot">
+    <div class="brand">
+      <svg width="30" height="32" viewBox="0 0 58 62" fill="none" aria-hidden="true"><path d="M29 57C25 47 12 36 10 20 8 9 14 3 19 6c6 4 7 20 9 33 1 8 1 13 1 18Z" fill="#7fa933"/><path d="M29 57c-2-12-5-29-3-43 1-8 4-13 7-12 4 1 5 8 3 19-2 13-5 26-7 36Z" fill="#b7f34a"/><path d="M29 57c4-10 14-21 19-37 3-10-2-17-7-14-6 4-8 20-10 33-1 8-2 13-2 18Z" fill="#94c63b"/></svg>
+      <b>Ver<span>tias</span></b><em>/ Peras</em>
+    </div>
+    <span>peras.vertias.eu · free, MIT, local</span>
+  </div>
+</div>
+</body>
+</html>
+<!--
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+    --window-size=1200,630 --virtual-time-budget=5000 --screenshot=site/og.png site/og-card.html
+-->

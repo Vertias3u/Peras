@@ -1,7 +1,7 @@
 {
   "name": "peras-cli",
-  "version": "0.1.1",
-  "description": "Stop Claude Code before it burns the rest of your limit.",
+  "version": "0.2.0",
+  "description": "Stop Claude Code or Codex before it burns the rest of your limit.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -10,6 +10,8 @@
   "files": [
     "bin/",
     "src/",
+    "!src/*.sh",
+    "!src/.swiftbarignore",
     "README.md",
     "LICENSE"
   ],
@@ -30,5 +32,5 @@
     "type": "git",
     "url": "git+https://github.com/Vertias3u/Peras.git"
   },
-  "homepage": "https://github.com/Vertias3u/Peras#readme"
+  "homepage": "https://peras.vertias.eu"
 }

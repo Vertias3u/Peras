@@ -1,0 +1,12 @@
+{
+  "five_hour": {
+    "usedPct": 85,
+    "resetsAt": 1791991800,
+    "seenAt": 1791987230050
+  },
+  "seven_day": {
+    "usedPct": 76,
+    "resetsAt": 1792260000,
+    "seenAt": 1791987230050
+  }
+}

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Explain limits · Peras</title>
+<!-- Bundled with Peras and opened from the menu bar. No web fonts or scripts: it works offline and calls nothing. -->
+<style>
+  :root { color-scheme: dark; --ink: #0b0d0c; --panel: #121613; --hair: #1d231e; --line: #293029; --paper: #edf1e9; --muted: #a6afa3; --quiet: #8a948a; --dim: #768076; --signal: #b7f34a; --yellow: #f2c14e; --red: #ff7a6b;
+    --sans: Manrope, system-ui, -apple-system, "Segoe UI", sans-serif; --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace; }
+  * { box-sizing: border-box; }
+  html { background: var(--ink); }
+  body { margin: 0; background: var(--ink); color: var(--paper); font: 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: var(--muted); text-underline-offset: 3px; }
+  a:hover { color: var(--paper); }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 4px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 20px 0; }
+  .crumb { display: flex; align-items: center; gap: 10px; line-height: 1; }
+  .crumb svg { width: 26px; height: 26px; }
+  .crumb b { font: 800 18px var(--mono); letter-spacing: -0.02em; }
+  .crumb span { color: var(--muted); font-weight: 500; }
+  .tabs { display: flex; gap: 6px; }
+  .tabs a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid transparent; border-radius: 10px; color: var(--muted); font-weight: 600; font-size: 14px; text-decoration: none; }
+  .tabs a:hover { color: var(--paper); }
+  .tabs [aria-current] { color: var(--paper); border-color: var(--line); }
+  header { max-width: 760px; padding: 28px 0 8px; }
+  h1 { margin: 0 0 14px; font-weight: 800; font-size: clamp(32px, 4.6vw, 48px); line-height: 1.05; letter-spacing: -0.04em; }
+  h1 em { font-style: normal; color: var(--signal); }
+  .lede { margin: 0; font-size: 17px; color: var(--muted); }
+  section { padding-top: 56px; }
+  h2 { margin: 0 0 18px; font-weight: 800; font-size: clamp(22px, 2.6vw, 28px); line-height: 1.15; letter-spacing: -0.03em; }
+  p { margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--hair); border-radius: 16px; padding: 22px 24px; }
+  .card p { color: var(--muted); }
+  .card p:last-child { margin-bottom: 0; }
+  .card h3 { margin: 6px 0 10px; font-size: 19px; letter-spacing: -0.02em; }
+  .card strong { color: var(--paper); }
+  .tag { font: 700 13px var(--mono); }
+  .tag + p { margin-top: 8px; }
+  .card.stop { background: #141a0f; border-color: #4d6a1d; }
+  .rows { border: 1px solid var(--hair); border-radius: 16px; overflow: hidden; }
+  .rows > div { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 6px 24px; padding: 16px 24px; border-top: 1px solid var(--hair); }
+  .rows > div:first-child { border-top: 0; }
+  .rows dt, .rows .k { font-weight: 700; }
+  .rows p { margin: 0; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; vertical-align: 1px; }
+  .swatch { display: inline-block; width: 22px; height: 8px; margin-right: 6px; border-radius: 8px; vertical-align: 1px; }
+  .prose { max-width: 760px; color: var(--muted); }
+  .prose strong { color: var(--paper); }
+  code { font: 0.9em var(--mono); color: var(--paper); }
+  .y { color: var(--yellow); } .g { color: var(--signal); }
+  footer { margin-top: 72px; padding: 28px 0 40px; border-top: 1px solid var(--hair); font-size: 14px; color: var(--quiet); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; }
+  footer .by svg { margin-right: 6px; vertical-align: -4px; }
+  footer .by b { color: var(--paper); font-weight: 700; letter-spacing: -0.055em; }
+  footer .by b i { font-style: normal; color: var(--signal); }
+  @media (max-width: 560px) { .rows > div { grid-template-columns: 1fr; padding: 14px 18px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav aria-label="Peras">
+    <div class="crumb">
+      <svg viewBox="0 -1 16 16" shape-rendering="crispEdges" aria-hidden="true"><path d="M7 3h3v1h-3zM6 4h5v2h-5zM5 6h7v1h-7zM4 7h9v1h-9zM3 8h11v4h-11zM4 12h9v1h-9zM5 13h7v1h-7z" fill="#b7f34a"/><path d="M5 8h1v2h-1z" fill="#e4fbb8"/><path d="M8 1h1v2h-1z" fill="#edf1e9"/><path d="M9 1h2v1h-2zM10 0h2v1h-2z" fill="#7fa933"/></svg>
+      <b>peras</b><span>/ Explain limits</span>
+    </div>
+    <!-- Installed at ~/.peras/app/src/limits.html; the status page is ~/.peras/status.html. -->
+    <div class="tabs"><a href="../../status.html">Status</a><a href="#" aria-current="page">Explain limits</a></div>
+  </nav>
+
+  <header>
+    <h1>Know how much <em>room you have left.</em></h1>
+    <p class="lede">Peras shows how much of your Claude and Codex allowances you've used. Your provider sets the allowance; Peras decides when your agents keep working.</p>
+  </header>
+
+  <section aria-labelledby="windows">
+    <h2 id="windows">Two windows, each with its own reset.</h2>
+    <div class="grid">
+      <article class="card">
+        <span class="tag g">5h · short window</span>
+        <h3>Your current session allowance</h3>
+        <p><strong>18% means 18% used, about 82% left.</strong> It measures usage, not hours: heavy tasks can use it up well before five hours have passed.</p>
+        <p>The menu bar percentages show this window, with its reset time beside the bar.</p>
+      </article>
+      <article class="card">
+        <span class="tag g">week · long window</span>
+        <h3>Your weekly allowance</h3>
+        <p>The weekly bar tracks the longer allowance. A fresh 5-hour window can still be held back by a used-up week.</p>
+        <p>The weekly bar shows when that allowance resets.</p>
+      </article>
+    </div>
+  </section>
+
+  <section aria-labelledby="lines">
+    <h2 id="lines">At your line, one of three things happens.</h2>
+    <div class="grid">
+      <article class="card"><span class="tag y">warn</span><p>You get told you crossed a line. The agent keeps working; a warning never pauses it.</p></article>
+      <article class="card"><span class="tag">ask</span><p>The next guarded tool action needs your approval. In Codex, which has no approval prompt, it waits until you resume.</p></article>
+      <article class="card stop"><span class="tag g">pause</span><p>The next guarded tool action is blocked. An action already running may finish first. Resuming doesn't refill your allowance.</p></article>
+    </div>
+    <div class="rows" style="margin-top:14px">
+      <div><span class="k">Weekly pace</span><p>Compares how much of the week you've used with how far through it you are, once its minimum usage is reached. It can warn before any fixed percentage line.</p></div>
+      <div><span class="k">Pause 1h · Pause</span><p>Pauses the agent for an hour, or until you resume.</p></div>
+      <div><span class="k">Resume 1h · Resume</span><p>Lifts the current stop for an hour, or until the window resets. The provider's own limits still apply.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="menu">
+    <h2 id="menu">Reading the menu.</h2>
+    <div class="prose">
+      <p><span class="swatch" style="background:#d97757"></span>Claude orange and <span class="swatch" style="background:#6d9afa"></span>Codex blue show used allowance; the empty part is what's left. <span class="swatch" style="background:#e5484d"></span>Red means usage reached one of your pause or ask lines.</p>
+      <p>The mascots walk along the 5-hour bars and stand still when an agent is paused or waiting for approval. Where they stand is decoration; the fill is the usage.</p>
+      <p>A dash means Peras has no live reading for that window. <strong>It doesn't mean zero usage.</strong> Open Status for the reading's age, warnings and refresh errors.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="health">
+    <h2 id="health">Is the guard actually running?</h2>
+    <div class="rows">
+      <div><span class="k"><i class="dot" style="background:var(--signal)"></i>Protection active</span><p>A tool guard ran recently with the current setup. It doesn't prove every open session is covered.</p></div>
+      <div><span class="k"><i class="dot" style="background:var(--yellow)"></i>Not recently verified</span><p>No live tool guard or successful protection self-test in the last 15 minutes. Run a tool or Protection test to refresh previously verified protection.</p></div>
+      <div><span class="k"><i class="dot" style="background:var(--yellow)"></i>Needs trust / activation</span><p>Codex needs you to review Peras in <code>/hooks</code>, or a tool call is needed to confirm it. Restart the session after changing hooks; for Claude, restart Claude Code.</p></div>
+      <div><span class="k"><i class="dot" style="background:var(--red)"></i>Setup missing</span><p>The guard is absent, wired wrong, or its runtime is gone. Run setup again.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="prefs">
+    <h2 id="prefs">Preferences.</h2>
+    <div class="prose">
+      <p>Under <strong>Settings → Menu bar display</strong>, turn the mascots and weekly bars on or off independently. Under <strong>Settings → Notifications</strong>, choose warning, pause/approval and reset alerts. Warning and pause alerts start on; reset alerts start off, need the menu bar running, and use the provider's reported reset time.</p>
+      <p>Turning notifications off doesn't turn off pausing. A timed pause shows its end time and a countdown, with Resume right below.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="testing">
+    <h2 id="testing">Test protection. See what happened.</h2>
+    <div class="prose">
+      <p>Choose <strong>Settings → Protection test…</strong> in the pear menu to test both hook commands with disposable state: allowed, denied while paused, then allowed after resume. Results appear in Status. Your working agents stay as they are, and the test makes no model calls.</p>
+      <p>A successful self-test changes Not recently verified to Protection active for 15 minutes when the previously verified setup is unchanged. The health details in Status identify the self-test and show the last live tool guard. The test doesn't establish trust or activation in every open session.</p>
+      <p><strong>Settings → Recent events…</strong> shows the latest 50 local summaries of warnings, pauses, resumes, resets and tests. Events are saved even when notifications are off. History starts after this update and contains no prompts or tool commands.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="rules">
+    <h2 id="rules">See your own rules.</h2>
+    <div class="rows">
+      <div><span class="k">Status…</span><p>The live readout in your browser, refreshed every 10 seconds.</p></div>
+      <div><code>peras why</code><p>Which rules are active, and why an agent stopped.</p></div>
+      <div><code>peras set</code><p>Your Claude lines. <code>peras codex set</code> for Codex's.</p></div>
+    </div>
+    <p class="prose" style="margin-top:16px">Allowance sizes depend on your plan, model and workload, and Claude usage on every Claude surface shares one account limit. For plan details: <a href="https://support.claude.com/en/articles/11647753-how-do-usage-and-length-limits-work">Claude usage limits</a> · <a href="https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan">Codex usage limits</a>.</p>
+  </section>
+
+  <footer>
+    <span>This guide comes with Peras and works offline; only the provider links need the internet. It explains the menu; for live usage, open Status.</span>
+    <span class="by"><svg width="18" height="19" viewBox="0 0 58 62" fill="none" aria-hidden="true"><path d="M29 57C25 47 12 36 10 20 8 9 14 3 19 6c6 4 7 20 9 33 1 8 1 13 1 18Z" fill="#7fa933"/><path d="M29 57c-2-12-5-29-3-43 1-8 4-13 7-12 4 1 5 8 3 19-2 13-5 26-7 36Z" fill="#b7f34a"/><path d="M29 57c4-10 14-21 19-37 3-10-2-17-7-14-6 4-8 20-10 33-1 8-2 13-2 18Z" fill="#94c63b"/></svg>Peras by <b>Ver<i>tias</i></b></span>
+  </footer>
+</div>
+</body>
+</html>

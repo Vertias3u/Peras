@@ -1,0 +1,19 @@
+{
+  "rules": [
+    {
+      "window": "seven_day",
+      "at": 75,
+      "action": "warn"
+    },
+    {
+      "window": "seven_day",
+      "at": 90,
+      "action": "pause"
+    },
+    {
+      "window": "five_hour",
+      "at": 95,
+      "action": "warn"
+    }
+  ]
+}

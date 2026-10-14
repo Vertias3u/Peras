@@ -1,0 +1,16 @@
+{
+  "notified": [
+    "warn:seven_day@1792260000",
+    "pause:seven_day@1792260000",
+    "warn:seven_day:75:warn@1792260000"
+  ],
+  "resumed": [
+    "seven_day@1792260000"
+  ],
+  "asked": {
+    "00000000-0000-4000-8000-000000000001": [
+      "seven_day:72:ask@1792260000"
+    ]
+  },
+  "failWarnAt": 0
+}

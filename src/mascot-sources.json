@@ -1,0 +1,15 @@
+{
+  "description": "Small frames extracted from official mascot artwork for local SwiftBar playback.",
+  "claude": {
+    "walking": "https://claude.ai/images/clawd/core/Clawd-CrabWalking.gif",
+    "idle": "https://claude.ai/images/clawd/core/Clawd-Still.png",
+    "walkingSha256": "a30f029d3df75d72bb11c13e84b6ae51ecbbdeb4ab70a0274eb169fa5909a95f"
+  },
+  "codex": {
+    "spritesheet": "https://persistent.oaistatic.com/codex/pets/v1/codex-spritesheet-v4.webp",
+    "sha256": "5cd7af9cfeae88fe9c6e47a72460e0dc4c6fb04baf7fdc6cca14a212f0bf44d1",
+    "animationReference": "https://github.com/openai/codex/blob/main/codex-rs/tui/src/pets/model.rs"
+  },
+  "processing": "Cropped transparency, resized with nearest-neighbor sampling into 40x28 RGBA cells, and losslessly compressed. Claude left walking mirrors its original frames. Codex uses distinct original left and right frames.",
+  "rights": "Artwork remains attributable to Anthropic and OpenAI respectively. No separate redistribution license was established; the project's MIT code license does not grant rights to third-party artwork."
+}

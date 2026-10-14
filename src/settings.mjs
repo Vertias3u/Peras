@@ -140,7 +140,10 @@ export function install({ env = process.env, command, resumeHint = "peras resume
 /** Takes out Peras's hooks and status line, putting back the status line it wrapped. */
 export function uninstall({ env = process.env }) {
   const target = settingsPath(env);
-  if (!fs.existsSync(target)) return { target, changed: false, restored: null };
+  if (!fs.existsSync(target)) {
+    fs.rmSync(installFile(env), { force: true });
+    return { target, changed: false, restored: null };
+  }
   const { value } = readSettings(target);
   const record = readInstall(env);
   const next = { ...value };

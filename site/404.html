@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found · Peras</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0b0d0c">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;800&family=Manrope:wght@500;700;800&display=swap">
+<style>
+  :root { --ink: #0b0d0c; --panel: #121613; --line: #293029; --paper: #edf1e9; --muted: #a6afa3; --dim: #768076; --off: #3a423b; --signal: #b7f34a; }
+  * { box-sizing: border-box; }
+  html { background: var(--ink); }
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--ink); color: var(--paper); font: 17px/1.6 Manrope, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 4px; }
+  .wrap { width: 100%; max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  nav { display: flex; align-items: center; gap: 10px; padding: 20px 0; font-size: 16px; line-height: 1; }
+  nav a { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--paper); text-decoration: none; }
+  .wordmark { font-weight: 700; letter-spacing: -0.055em; }
+  .wordmark span { color: var(--signal); }
+  nav .product { color: var(--muted); font-weight: 500; }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 32px 0 96px; }
+  .pear { width: 112px; height: 112px; }
+  .code { margin-top: 20px; font: 800 clamp(34px, 6vw, 48px)/1 "JetBrains Mono", ui-monospace, Menlo, monospace; letter-spacing: -0.02em; }
+  h1 { margin: 16px 0 8px; font-weight: 800; font-size: clamp(26px, 4vw, 36px); line-height: 1.1; letter-spacing: -0.03em; }
+  p { margin: 0; max-width: 460px; color: var(--muted); }
+  .home { display: inline-flex; align-items: center; min-height: 44px; margin-top: 28px; padding: 0 18px; border-radius: 10px; background: var(--signal); color: var(--ink); font-weight: 700; font-size: 15px; text-decoration: none; }
+  .home:hover { background: #c8ff63; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav aria-label="Primary">
+    <a href="https://vertias.eu">
+      <svg width="27" height="29" viewBox="0 0 58 62" fill="none" role="img" aria-label="Vertias"><path d="M29 57C25 47 12 36 10 20 8 9 14 3 19 6c6 4 7 20 9 33 1 8 1 13 1 18Z" fill="#7fa933"/><path d="M29 57c-2-12-5-29-3-43 1-8 4-13 7-12 4 1 5 8 3 19-2 13-5 26-7 36Z" fill="#b7f34a"/><path d="M29 57c4-10 14-21 19-37 3-10-2-17-7-14-6 4-8 20-10 33-1 8-2 13-2 18Z" fill="#94c63b"/></svg>
+      <span class="wordmark" aria-hidden="true">Ver<span>tias</span></span>
+    </a>
+    <a class="product" href="/">/ Peras</a>
+  </nav>
+</div>
+<main class="wrap">
+  <!-- The pear, nearly empty: only its bottom rows are filled. -->
+  <svg class="pear" viewBox="0 -1 16 16" shape-rendering="crispEdges" aria-hidden="true">
+    <path d="M7 3h3v1h-3zM6 4h5v2h-5zM5 6h7v1h-7zM4 7h9v1h-9zM3 8h11v4h-11zM4 12h9v1h-9zM5 13h7v1h-7z" fill="#3a423b"/>
+    <path d="M3 11h11v1h-11zM4 12h9v1h-9zM5 13h7v1h-7z" fill="#b7f34a"/>
+    <path d="M8 1h1v2h-1z" fill="#edf1e9"/>
+    <path d="M9 1h2v1h-2zM10 0h2v1h-2z" fill="#7fa933"/>
+  </svg>
+  <div class="code">404</div>
+  <h1>Nothing at this address.</h1>
+  <p>The page you were after doesn't exist, but there's plenty of week left on the home page.</p>
+  <a class="home" href="/">Back to Peras</a>
+</main>
+</body>
+</html>

@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peras: stop Claude Code or Codex before it burns your limit</title>
+<meta name="description" content="Peras watches your Claude Pro/Max or ChatGPT plan usage, tells you where the week is headed, and pauses the agent (or asks first) at the line you set. Free, MIT, local.">
+<link rel="canonical" href="https://peras.vertias.eu/">
+<meta name="author" content="Vertias">
+<link rel="author" href="https://vertias.eu">
+<meta name="theme-color" content="#0b0d0c">
+<meta name="color-scheme" content="dark">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://peras.vertias.eu/">
+<meta property="og:site_name" content="Peras by Vertias">
+<meta property="og:title" content="Peras: stop Claude Code or Codex before it burns the rest of your limit">
+<meta property="og:description" content="Forecast when your limit runs out, see which chat used it, and pause the agent at your line. Free, MIT, local.">
+<meta property="og:image" content="https://peras.vertias.eu/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Peras by Vertias: a pixel pear and the line “Stop Claude Code or Codex before it burns the rest of your limit.”">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Manrope:wght@500;600;700;800&display=swap">
+<script>
+  // Motion only with JS and without reduced motion; otherwise everything is simply shown.
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.classList.add("motion");
+</script>
+<style>
+  :root {
+    --ink: #0b0d0c; --panel: #121613; --deep: #070908; --line: #293029; --hair: #1d231e;
+    --paper: #edf1e9; --muted: #a6afa3; --quiet: #8a948a; --dim: #768076; --off: #3a423b;
+    --signal: #b7f34a; --leaf: #7fa933; --leaf-mid: #94c63b; --shine: #e4fbb8;
+    --yellow: #f2c14e; --red: #ff7a6b;
+    --sans: Manrope, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--ink); }
+  body { margin: 0; background: var(--ink); color: var(--paper); font: 17px/1.6 var(--sans); overflow-x: clip; -webkit-font-smoothing: antialiased; }
+  a { color: var(--muted); }
+  a:hover { color: var(--paper); }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 4px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .mono { font-family: var(--mono); }
+
+  nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 20px 0; }
+  .crumb { display: flex; align-items: center; gap: 10px; font-size: 16px; line-height: 1; }
+  .vertias { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--paper); text-decoration: none; }
+  .wordmark { font-weight: 700; letter-spacing: -0.055em; }
+  .wordmark span { color: var(--signal); }
+  .crumb .product { color: var(--muted); font-weight: 500; }
+  .btn-line { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--paper); text-decoration: none; font-size: 15px; font-weight: 600; }
+  .btn-line:hover { border-color: var(--leaf); }
+
+  header.hero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: clamp(32px, 6vw, 72px) 0 48px; }
+  .pear { width: clamp(144px, 18vw, 192px); height: clamp(144px, 18vw, 192px); overflow: visible; }
+  .name { display: flex; align-items: center; margin-top: 18px; font: 800 clamp(34px, 4.4vw, 48px)/1 var(--mono); letter-spacing: -0.02em; }
+  .cursor { display: inline-block; width: 0.5em; height: 0.92em; margin-left: 6px; background: var(--signal); }
+  h1 { margin: 40px 0 16px; max-width: 820px; font-weight: 800; font-size: clamp(34px, 5vw, 60px); line-height: 1.04; letter-spacing: -0.04em; }
+  h1 span { color: var(--signal); }
+  .lede { margin: 0; max-width: 600px; font-size: clamp(17px, 1.5vw, 19px); color: var(--muted); }
+  .install { display: flex; align-items: center; gap: 14px; margin-top: 32px; padding: 6px 6px 6px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font: 16px var(--mono); max-width: 100%; }
+  .install .ps { color: var(--dim); }
+  .copy { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--signal); color: var(--ink); font: 700 14px var(--sans); cursor: pointer; white-space: nowrap; }
+  .copy:hover { background: #c8ff63; }
+  .small { margin: 14px 0 0; font-size: 14px; color: var(--quiet); }
+  .small .mono { color: var(--muted); }
+
+  figure { margin: 0; }
+  .term { background: var(--deep); border: 1px solid #222922; border-radius: 16px; overflow: hidden; }
+  .term-bar { display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid #1a201b; }
+  .term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #2a312b; }
+  .term-body { padding: 22px 24px 26px; overflow-x: auto; font: 14px/1.6 var(--mono); color: #d9ded5; }
+  .term-body div { white-space: pre; }
+  /* JetBrains Mono has no ▰▱, and the fallback draws them small. */
+  .bar { font-family: Menlo, "DejaVu Sans Mono", monospace; font-size: 1.3em; line-height: 0; letter-spacing: -0.04em; }
+  .d { color: var(--dim); } .g { color: var(--signal); } .y { color: var(--yellow); } .r { color: var(--red); } .off { color: var(--off); }
+  figcaption { margin-top: 10px; font-size: 14px; color: var(--quiet); text-align: center; }
+
+  section { padding: 96px 0 0; }
+  h2 { margin: 0 0 28px; font-weight: 800; font-size: clamp(26px, 3vw, 36px); line-height: 1.1; letter-spacing: -0.03em; text-align: center; }
+  .acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; }
+  .act { background: var(--panel); border: 1px solid var(--hair); border-radius: 16px; padding: 22px 24px; }
+  .act b { font: 700 14px var(--mono); }
+  .act p { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
+  .act.stop { background: #141a0f; border-color: #4d6a1d; }
+  .act code { font: 14px var(--mono); color: var(--paper); }
+  .lines { margin-top: 14px; border: 1px solid var(--hair); border-radius: 16px; overflow: hidden; }
+  .lines div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 24px; padding: 14px 24px; border-top: 1px solid var(--hair); }
+  .lines div:first-child { border-top: 0; }
+  .lines span { font-weight: 700; }
+  .lines code { font: 14px var(--mono); color: var(--muted); }
+
+  .split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 40px 56px; align-items: center; }
+  .split > * { min-width: 0; }
+  .split h2 { margin: 12px 0 16px; text-align: left; text-wrap: balance; }
+  .eyebrow { font: 700 13px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--signal); }
+  .copytext { margin: 0; max-width: 480px; color: var(--muted); }
+  .points { display: grid; gap: 10px; margin: 24px 0 0; padding: 0; list-style: none; font-size: 16px; color: var(--muted); }
+  .points li { display: flex; gap: 12px; }
+  .points li::before { content: ""; flex: none; width: 8px; height: 8px; margin-top: 9px; background: var(--signal); }
+  .cmd { display: inline-flex; margin-top: 28px; padding: 12px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; font: 15px var(--mono); max-width: 100%; overflow-x: auto; }
+  .cmd .ps { color: var(--dim); }
+  .needs { margin: 10px 0 0; font-size: 14px; color: var(--quiet); }
+  .needs .mono { color: var(--muted); }
+
+  /* The menu bar, drawn by Peras itself on the demo week (scripts/demo-week.mjs site-images). */
+  .mb { display: flex; flex-direction: column; align-items: center; }
+  .mb-frame { width: 100%; max-width: 420px; font: 13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+  .mb-bar { display: flex; align-items: center; gap: 14px; height: 30px; padding: 0 12px; background: #1a1c1a; border: 1px solid #262a26; border-radius: 10px 10px 0 0; }
+  .mb-bar .apple { flex: none; margin-left: 4px; }
+  .mb-right { display: flex; align-items: center; gap: 14px; margin-left: auto; font-weight: 500; }
+  .mb-title { display: flex; align-items: center; height: 24px; padding: 0 7px; border-radius: 5px; background: #3a3e3a; }
+  .mb-title img { display: block; }
+  .mb-drop { display: flex; justify-content: flex-end; padding-right: max(0px, calc((100% - 340px) / 2)); }
+  .menu { width: max-content; max-width: 100%; margin-top: 4px; padding: 6px 0; background: #222422; border: 1px solid #3a3e3a; border-radius: 10px; box-shadow: 0 18px 40px #000; }
+  .menu > div { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 0 14px; }
+  .menu .label { min-height: 26px; }
+  .menu .label img, .menu .use img { display: block; }
+  .menu .health { min-height: 0; padding-bottom: 2px; font-size: 11px; color: var(--quiet); }
+  .menu .use { min-height: 26px; }
+  .menu .use span { white-space: pre; font: 11px Menlo, "DejaVu Sans Mono", var(--mono); }
+  .menu .more { justify-content: space-between; }
+  .menu hr { height: 1px; margin: 5px 14px; border: 0; background: #3a3e3a; }
+  .walk { display: block; flex: none; width: 96px; height: 20px; background: 0 0 / 7680px 20px no-repeat; }
+  .walk.claude { background-image: url(menubar/walk-claude.png); }
+  .walk.codex { background-image: url(menubar/walk-codex.png); }
+  @keyframes walk { to { background-position: -7680px 0; } }
+  .motion .walk { animation: walk 10s steps(80) infinite; }
+
+  .center { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .center h2 { margin-bottom: 14px; text-wrap: balance; }
+  .center .copytext { max-width: 600px; }
+  .center .cmd { margin-top: 24px; }
+  .copytext code { font: 15px var(--mono); color: var(--paper); }
+  .facts { margin-top: 32px; }
+  .facts b { font: 700 17px var(--sans); }
+  .cmds { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap: 14px; align-items: start; }
+  .cmds .lines { margin-top: 0; }
+  .cmds .lines div { flex-direction: column; gap: 4px; padding: 16px 24px; }
+  .cmds .lines code { font-weight: 700; color: var(--paper); }
+  .cmds .lines span { font-weight: 400; font-size: 15px; color: var(--muted); }
+  .note { margin: 18px 0 0; text-align: center; font-size: 14px; color: var(--quiet); }
+
+  footer { margin-top: 96px; padding: 36px 0 44px; border-top: 1px solid var(--hair); font-size: 14px; color: var(--quiet); }
+  .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px 40px; }
+  .foot .vertias { min-height: 0; font-size: 16px; line-height: 1; }
+  .sig { margin: 12px 0 0; font-size: 15px; color: var(--muted); }
+  .links { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 8px 22px; }
+  .legal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 32px; margin-top: 28px; padding-top: 20px; border-top: 1px solid #161b17; font-size: 13px; }
+  .legal span:last-child { max-width: 520px; }
+
+  @media (max-width: 480px) {
+    .star-word { display: none; }
+    .install { font-size: 14px; gap: 10px; padding-left: 14px; }
+    .term-body { font-size: 12px; padding: 18px 16px 20px; }
+    .lines div, .cmds .lines div { padding: 14px 18px; }
+  }
+  /* The smallest phones: draw the whole menu a little smaller rather than clip it. */
+  @media (max-width: 370px) {
+    .mb-frame { zoom: 0.85; }
+    .menu .use span { font-size: 10px; }
+  }
+
+  /* The intro: the pear fills row by row, holds at the 75% line, then finishes. */
+  @keyframes on { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pop { 0% { opacity: 0; transform: scale(0); } 70% { opacity: 1; transform: scale(1.35); } 100% { opacity: 1; transform: scale(1); } }
+  @keyframes flash { 0% { opacity: 0; } 8%, 30% { opacity: 1; } 38% { opacity: 0; } 50%, 72% { opacity: 1; } 80%, 100% { opacity: 0; } }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  @keyframes type { from { width: 0; } to { width: 12ch; } }
+  @keyframes seg { from { color: var(--off); } }
+  @keyframes gone { to { opacity: 0; } }
+  @keyframes warn { 0% { opacity: 0; } 12% { opacity: 1; } 28% { opacity: 0.2; } 44%, 100% { opacity: 1; } }
+  .flash { opacity: 0; }
+  .motion .a { animation: on 1ms linear var(--d) both; }
+  .motion .leafpop { transform-box: fill-box; transform-origin: 0 100%; animation: pop 320ms ease-out var(--d) both; }
+  .motion .flash { animation: flash 950ms linear var(--d) both; }
+  .motion .cursor { animation: on 1ms linear 2900ms both, blink 1.05s steps(1) 3300ms infinite; }
+  /* The terminal waits until it is on screen, then runs. */
+  .motion .term-body .t, .motion .term-body .s { animation-play-state: paused; }
+  .motion .term-body .t { animation: on 1ms linear var(--d) both paused; }
+  .motion .term-body .s { animation: seg 1ms linear var(--d) both paused; }
+  .motion .term-body .typed { display: inline-block; overflow: hidden; vertical-align: bottom; width: 12ch; animation: type 660ms steps(12) 0ms both paused; }
+  .motion .term-body .caret { display: inline-block; width: 0.6em; height: 1.15em; margin-left: 1px; vertical-align: -0.2em; background: var(--signal); animation: blink 1.05s steps(1) infinite, gone 1ms linear 750ms forwards paused; }
+  .motion .term-body .w { animation: warn 600ms linear var(--d) both paused; }
+  .motion .term-body .end { animation: blink 1.05s steps(1) var(--d) infinite paused; }
+  .motion .term-body.run .t, .motion .term-body.run .s, .motion .term-body.run .typed, .motion .term-body.run .w, .motion .term-body.run .end { animation-play-state: running; }
+  .motion .term-body.run .caret { animation-play-state: running, running; }
+  .term-body .caret, .term-body .end { display: none; }
+  .motion .term-body .caret, .motion .term-body .end { display: inline-block; }
+  .motion .term-body .end { width: 0.6em; height: 1.15em; vertical-align: -0.2em; background: var(--signal); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav aria-label="Primary">
+  <div class="crumb">
+    <a class="vertias" href="https://vertias.eu">
+      <svg width="27" height="29" viewBox="0 0 58 62" fill="none" role="img" aria-label="Vertias"><path d="M29 57C25 47 12 36 10 20 8 9 14 3 19 6c6 4 7 20 9 33 1 8 1 13 1 18Z" fill="#7fa933"/><path d="M29 57c-2-12-5-29-3-43 1-8 4-13 7-12 4 1 5 8 3 19-2 13-5 26-7 36Z" fill="#b7f34a"/><path d="M29 57c4-10 14-21 19-37 3-10-2-17-7-14-6 4-8 20-10 33-1 8-2 13-2 18Z" fill="#94c63b"/></svg>
+      <span class="wordmark" aria-hidden="true">Ver<span>tias</span></span>
+    </a>
+    <span class="product">/ Peras</span>
+  </div>
+  <a class="btn-line" href="https://github.com/Vertias3u/Peras">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></svg><span><span class="star-word">Star on </span>GitHub</span>
+  </a>
+</nav>
+
+<header class="hero">
+  <svg class="pear" viewBox="0 -1 16 16" shape-rendering="crispEdges" role="img" aria-label="Peras logo: a pixel pear">
+    <rect class="a" style="--d:200ms" x="5" y="13" width="7" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:310ms" x="4" y="12" width="9" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:420ms" x="3" y="11" width="11" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:530ms" x="3" y="10" width="11" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:640ms" x="3" y="9" width="11" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:750ms" x="3" y="8" width="11" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:860ms" x="4" y="7" width="9" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:970ms" x="5" y="6" width="7" height="1" fill="#b7f34a"/>
+    <rect class="flash" style="--d:1050ms" x="0.5" y="5.8" width="15" height="0.4" fill="#edf1e9"/>
+    <text class="flash" style="--d:1050ms; font-family: var(--mono)" x="16.4" y="6.35" font-size="1.05" fill="#edf1e9">75% · line</text>
+    <rect class="a" style="--d:2050ms" x="6" y="5" width="5" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:2160ms" x="6" y="4" width="5" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:2270ms" x="7" y="3" width="3" height="1" fill="#b7f34a"/>
+    <rect class="a" style="--d:2360ms" x="5" y="8" width="1" height="2" fill="#e4fbb8"/>
+    <rect class="a" style="--d:2440ms" x="8" y="1" width="1" height="2" fill="#edf1e9"/>
+    <path class="leafpop" style="--d:2540ms" d="M9 1h2v1h-2zM10 0h2v1h-2z" fill="#7fa933"/>
+  </svg>
+  <div class="name" aria-label="peras"><span class="a" style="--d:2900ms" aria-hidden="true">p</span><span class="a" style="--d:2980ms" aria-hidden="true">e</span><span class="a" style="--d:3060ms" aria-hidden="true">r</span><span class="a" style="--d:3140ms" aria-hidden="true">a</span><span class="a" style="--d:3220ms" aria-hidden="true">s</span><span class="cursor" aria-hidden="true"></span></div>
+
+  <h1>Stop Claude Code or Codex before it burns <span>the rest of your limit.</span></h1>
+  <p class="lede">Peras watches your plan's usage, tells you where the week is headed, and pauses the agent (or asks first) at the line you set.</p>
+  <div class="install">
+    <span><span class="ps">$ </span>npx peras-cli setup</span>
+    <button class="copy" type="button" id="copy"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button>
+  </div>
+  <p class="small">v0.2 · free, MIT, local · Node 18+, no dependencies · <span class="mono">peras remove</span> puts everything back</p>
+</header>
+
+<figure>
+  <div class="term">
+    <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="term-body" id="term" role="img" aria-label="peras status: 5-hour usage 24%, weekly 78% and full by Thursday 14:59, a warning past the 75% line, usage by chat, and Codex at 41% of its week">
+<div><span class="d">$ </span><span class="typed">peras status</span><span class="caret"></span></div>
+<div class="t" style="--d:800ms">Peras 🍐 watching ~/.claude</div>
+<div> </div>
+<div class="t" style="--d:950ms">  5h  <span class="bar"><span class="g"><span class="s" style="--d:1020ms">▰</span><span class="s" style="--d:1100ms">▰</span></span><span class="off">▱▱▱▱▱▱▱▱</span></span><span class="t" style="--d:1200ms"><span class="g">  24%</span>   resets 18:24      on pace for 75% at reset</span></div>
+<div class="t" style="--d:1250ms">  7d  <span class="bar"><span class="y"><span class="s" style="--d:1300ms">▰</span><span class="s" style="--d:1370ms">▰</span><span class="s" style="--d:1440ms">▰</span><span class="s" style="--d:1510ms">▰</span><span class="s" style="--d:1580ms">▰</span><span class="s" style="--d:1650ms">▰</span><span class="s" style="--d:1720ms">▰</span><span class="s" style="--d:1790ms">▰</span></span><span class="off">▱▱</span></span><span class="t" style="--d:1880ms"><span class="y">  78%</span>   resets Sat 12:00  </span><span class="t r" style="--d:2050ms">full by Thu 14:59</span></div>
+<div> </div>
+<div class="w y" style="--d:2300ms">⚠️ weekly 78% (line 75%), weekly runs out Thu 14:59 at this pace (resets Sat 12:00).</div>
+<div> </div>
+<div class="t" style="--d:2600ms">This week by chat (≈: shared out by what each spent; claude.ai use counts too):</div>
+<div class="t" style="--d:2680ms">  ≈ +41%    ~/code/app   <span class="d">7f3a9c21</span></div>
+<div class="t" style="--d:2760ms">  ≈ +12%    ~/code/blog  <span class="d">b81e04d7</span></div>
+<div> </div>
+<div class="t" style="--d:2950ms">Peras 🍐 watching ~/.codex</div>
+<div> </div>
+<div class="t" style="--d:3100ms">  5h  <span class="bar"><span class="g">▰</span><span class="off">▱▱▱▱▱▱▱▱▱</span></span><span class="g">  12%</span>   resets 17:12      on pace for 21% at reset</div>
+<div class="t" style="--d:3200ms">  7d  <span class="bar"><span class="g">▰▰▰▰</span><span class="off">▱▱▱▱▱▱</span></span><span class="g">  41%</span>   resets Sun 20:00  <span class="r">full by Sun 15:25</span></div>
+<div> </div>
+<div class="t" style="--d:3450ms"><span class="d">$ </span><span class="end" style="--d:3450ms"></span></div>
+    </div>
+  </div>
+  <figcaption>Real <span class="mono">peras status</span> output, trimmed, run on a demo week.</figcaption>
+</figure>
+
+<section aria-labelledby="menubar">
+  <div class="split">
+    <div>
+      <div class="eyebrow">macOS menu bar</div>
+      <h2 id="menubar">Both agents, one glance away.</h2>
+      <p class="copytext">The pear sits next to your clock with each agent's 5-hour usage. Click it for the weekly bars, the time left until each reset, and Pause or Resume for Claude Code and Codex separately.</p>
+      <ul class="points">
+        <li>Clawd and the Codex companion walk along their 5-hour bars, and stand still while their agent is paused.</li>
+        <li>A percentage turns red when that agent is stopped.</li>
+        <li>Prefer it quiet? Show the pear only, and pick which notifications you get.</li>
+      </ul>
+      <div class="cmd"><span><span class="ps">$ </span>peras menubar install</span></div>
+      <p class="needs">Needs <a href="https://github.com/swiftbar/SwiftBar">SwiftBar</a>, free: <span class="mono">brew install --cask swiftbar</span></p>
+    </div>
+    <figure class="mb">
+      <div class="mb-frame" role="img" aria-label="The Peras menu bar: Claude at 24% of its 5 hours and 78% of its week, Codex at 12% and 41%, each with Pause 1h and Pause">
+        <div class="mb-bar"><svg class="apple" width="14" height="16" viewBox="0 0 24 24" fill="#edf1e9" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg><span class="mb-right"><span class="mb-title"><img src="menubar/title.png" alt="" width="114" height="20"></span><span>Thu 15:00</span></span></div>
+        <div class="mb-drop"><div class="menu">
+      <div class="label"><img src="menubar/label-claude.png" alt="" width="42" height="20"></div>
+      <div class="health" data-menu>Protection active</div>
+      <div class="use"><i class="walk claude"></i><span data-menu>5h    24% · 3h 24m (18:24)</span></div>
+      <div class="use"><img src="menubar/week-claude.png" alt="" width="96" height="20"><span data-menu>Week  78% · 2d 21h (Sat 12:00)</span></div>
+      <div data-menu>Pause 1h</div>
+      <div data-menu>Pause</div>
+      <hr>
+      <div class="label"><img src="menubar/label-codex.png" alt="" width="38" height="20"></div>
+      <div class="health" data-menu>Protection active</div>
+      <div class="use"><i class="walk codex"></i><span data-menu>5h    12% · 2h 12m (17:12)</span></div>
+      <div class="use"><img src="menubar/week-codex.png" alt="" width="96" height="20"><span data-menu>Week  41% · 4d 5h (Sun 20:00)</span></div>
+      <div data-menu>Pause 1h</div>
+      <div data-menu>Pause</div>
+      <hr>
+      <div data-menu>Status…</div>
+      <div class="more"><span data-menu>Settings</span><svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="#a6afa3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 2l4 4-4 4"/></svg></div>
+        </div></div>
+      </div>
+      <figcaption>Drawn by Peras itself, on the same demo week.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section aria-labelledby="acts">
+  <h2 id="acts">At your line, one of three things happens.</h2>
+  <div class="acts">
+    <div class="act"><b class="y">warn</b><p>A desktop notification. The agent keeps going.</p></div>
+    <div class="act"><b>ask</b><p>The next tool call waits for your OK, once per session. Even from your phone.</p></div>
+    <div class="act stop"><b class="g">pause</b><p>Tool calls are refused and the turn ends, until it lifts or you run <code>peras resume</code>.</p></div>
+  </div>
+  <div class="lines">
+    <div><span>On pace to run out early</span><code>peras set weekly pace pause</code></div>
+    <div><span>One prompt eats 3% of the week</span><code>peras set prompt 3 pause</code></div>
+    <div><span>Overnight runs, at 50%</span><code>peras set 01:00-08:00 weekly 50 pause</code></div>
+    <div><span>Just this folder, at 60%</span><code>peras set --here weekly 60 pause</code></div>
+  </div>
+</section>
+
+<section class="center" aria-labelledby="codex">
+  <h2 id="codex">Codex gets the same guard.</h2>
+  <p class="copytext">One command adds the same hooks to Codex desktop and the Codex CLI. Every command works there too: <code>peras codex status</code>, <code>peras codex pause</code>, and the rest.</p>
+  <div class="cmd"><span><span class="ps">$ </span>peras codex setup</span></div>
+</section>
+<div class="acts facts">
+  <div class="act"><b>Its own lines</b><p>Codex's lines, history and pauses are kept apart from Claude Code's.</p></div>
+  <div class="act"><b>No tokens touched</b><p>Usage comes from your ChatGPT plan, read through Codex's own local app-server. Peras reads no login files.</p></div>
+  <div class="act"><b>Ask means wait</b><p>Codex has no approval prompt, so an ask line holds its tools until you run <code>peras codex resume</code>.</p></div>
+</div>
+
+<section aria-labelledby="ask">
+  <h2 id="ask">Ask it what's going on.</h2>
+  <div class="cmds">
+    <div class="lines">
+      <div><code>peras why</code><span>Which line is acting, and when it lifts.</span></div>
+      <div><code>peras history</code><span>Past weeks: the peak, the lines crossed, and when it hit the wall.</span></div>
+      <div><code>peras pause 1h · peras pause 18:00</code><span>Pause by hand, for a while or until a time.</span></div>
+      <div><code>peras resume 1h</code><span>Lift a stop for an hour instead of until the reset.</span></div>
+      <div><code>peras events</code><span>Recent warnings, pauses, resumes and resets.</span></div>
+    </div>
+    <div class="lines">
+      <div><code>peras test</code><span>Tries a pause and resume on a throwaway copy of the hooks, for both agents.</span></div>
+      <div><code>peras doctor</code><span>Checks that each agent's hooks actually ran lately.</span></div>
+      <div><code>peras notify resets on</code><span>Choose your desktop notifications: warnings, pauses, resets.</span></div>
+      <div><code>peras update</code><span>The newest Peras, with your hooks and menu bar refreshed. Your lines and history stay.</span></div>
+      <div><code>peras remove</code><span>Puts everything back the way it was.</span></div>
+    </div>
+  </div>
+  <p class="note">Everything stays on your machine. The event log holds no prompts and no tool commands.</p>
+</section>
+
+<footer>
+  <div class="foot">
+    <div>
+      <a class="vertias" href="https://vertias.eu">
+        <svg width="24" height="26" viewBox="0 0 58 62" fill="none" role="img" aria-label="Vertias"><path d="M29 57C25 47 12 36 10 20 8 9 14 3 19 6c6 4 7 20 9 33 1 8 1 13 1 18Z" fill="#7fa933"/><path d="M29 57c-2-12-5-29-3-43 1-8 4-13 7-12 4 1 5 8 3 19-2 13-5 26-7 36Z" fill="#b7f34a"/><path d="M29 57c4-10 14-21 19-37 3-10-2-17-7-14-6 4-8 20-10 33-1 8-2 13-2 18Z" fill="#94c63b"/></svg>
+        <span class="wordmark" aria-hidden="true">Ver<span>tias</span></span>
+      </a>
+      <p class="sig">Spend the last of your week on purpose.</p>
+    </div>
+    <div class="links">
+      <a href="https://github.com/Vertias3u/Peras#honest-limits">Honest limits</a>
+      <a href="https://github.com/Vertias3u/Peras#codex-desktop-and-cli">Codex setup</a>
+      <a href="https://github.com/Vertias3u/Peras">Source</a>
+      <a href="https://www.npmjs.com/package/peras-cli">npm</a>
+      <a href="https://passcontrol.vertias.eu">PassControl</a>
+    </div>
+  </div>
+  <div class="legal">
+    <span>MIT · © 2026 Kristiyan Ivanov · Vertias project · Sofia, Bulgaria</span>
+    <span>Not affiliated with Anthropic or OpenAI. Claude and Claude Code are Anthropic's trademarks; Codex and ChatGPT are OpenAI's.</span>
+  </div>
+</footer>
+
+</div>
+<script>
+  // Copy the install command.
+  const copy = document.getElementById("copy");
+  const label = copy.querySelector("span");
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText("npx peras-cli setup"); label.textContent = "Copied"; }
+    catch { label.textContent = "Select it"; }
+    setTimeout(() => { label.textContent = "Copy"; }, 1500);
+  });
+  // Run the terminal once it is on screen, but not before the pear has finished.
+  const term = document.getElementById("term");
+  if (document.documentElement.classList.contains("motion")) {
+    const run = () => setTimeout(() => term.classList.add("run"), Math.max(0, 3500 - performance.now()));
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver((entries, obs) => {
+        if (entries.some((e) => e.isIntersecting)) { obs.disconnect(); run(); }
+      }, { threshold: 0.35 }).observe(term);
+    } else run();
+  }
+</script>
+</body>
+</html>

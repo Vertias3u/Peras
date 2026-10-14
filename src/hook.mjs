@@ -1,6 +1,10 @@
-import { WINDOWS, liveWindow, resetTime } from "./window.mjs";
-import { evaluate } from "./rules.mjs";
-import { readInstall, readRules, readState, readWindow, writeState } from "./store.mjs";
+import { WINDOWS, resetTime } from "./window.mjs";
+import { evaluate, realDir } from "./rules.mjs";
+import { context, readInstall, readState, writeState } from "./store.mjs";
+import { readUsage } from "./usage.mjs";
+import { recordHookRun } from "./hook-health.mjs";
+import { preferences } from "./preferences.mjs";
+import { recordEvent } from "./events.mjs";
 
 // One command hook on three events (the same three PassControl gates):
 //   UserPromptSubmit  a prompt the user typed      → goes through; a notice if paused (D2)
@@ -13,20 +17,47 @@ import { readInstall, readRules, readState, readWindow, writeState } from "./sto
 
 const FAIL_WARN_EVERY_MS = 60_000;
 
-function describe(hit, now) {
-  return {
-    name: WINDOWS[hit.window].name,
-    pct: Math.round(hit.usedPct),
-    at: hit.at,
-    reset: resetTime(hit.resetsAt, now),
-  };
+/** A hit in words: what happened, a short form, and when it lifts by itself. */
+export function describe(hit, now) {
+  const name = hit.window ? WINDOWS[hit.window].name : "";
+  const pct = Math.round(hit.usedPct);
+  const reset = hit.resetsAt ? resetTime(hit.resetsAt, now) : null;
+  const during = hit.during ? ` (${hit.during})` : "";
+  switch (hit.kind) {
+    case "manual":
+      return {
+        what: "the user paused it by hand",
+        short: "paused by you",
+        lifts: hit.until ? `It lifts at ${resetTime(hit.until / 1000, now)}` : "It stays paused until you resume",
+      };
+    case "pace": {
+      const out = hit.runsOutAt ? resetTime(hit.runsOutAt / 1000, now) : null;
+      return {
+        what: out ? `${name} usage is ${pct}% and at this pace runs out ${out}, before it resets ${reset}` : `${name} usage is ${pct}% and on pace for ${Math.round(hit.projected)}% before it resets ${reset}`,
+        short: out ? `${name} runs out ${out} at this pace (resets ${reset})` : `${name} on pace for ${Math.round(hit.projected)}% by ${reset}`,
+        lifts: `It lifts when the pace slows or at ${reset}`,
+      };
+    }
+    case "prompt":
+      return {
+        what: `this prompt raised ${name} usage by ${Math.round(hit.rise)} points, past the ${hit.at}-point allowance per prompt${during}`,
+        short: `prompt used +${Math.round(hit.rise)}% ${name}`,
+        lifts: "It lifts at your next prompt",
+      };
+    default:
+      return {
+        what: `${name} usage is ${pct}%, past the ${hit.at}% line${during}`,
+        short: `${name} ${pct}% (line ${hit.at}%)`,
+        lifts: `It lifts at ${reset}`,
+      };
+  }
 }
 
-const toClaude = ({ name, pct, at }) =>
-  `The user's usage guard (Peras) has paused tool use: their ${name} Claude usage is at ${pct}%, past the ${at}% line they set. Do not retry or work around this. Stop and tell the user their ${name} usage reached ${pct}%.`;
+const toClaude = (d) =>
+  `The user's usage guard (Peras) has paused tool use: ${d.what}. Do not retry or work around this. Stop and tell the user why you stopped.`;
 
 function pauseFor(event, d, resumeHint) {
-  const stopReason = `Peras paused Claude Code: ${d.name} usage is ${d.pct}%, past your ${d.at}% line. It lifts at ${d.reset}, or type: ! ${resumeHint}`;
+  const stopReason = `Peras paused Claude Code: ${d.what}. ${d.lifts}, or type: ! ${resumeHint}`;
   if (event === "PreToolUse") {
     return {
       continue: false,
@@ -37,6 +68,8 @@ function pauseFor(event, d, resumeHint) {
   return { continue: false, stopReason, decision: "block", reason: toClaude(d) };
 }
 
+const hasKind = (rules, kind) => rules.some((r) => r.kind === kind);
+
 /**
  * @param {{ input: object, env?: object, now?: number, notify?: (title: string, body: string) => void }} options
  * @returns {object | null} the hook's JSON answer, or null for "go ahead, say nothing"
@@ -45,61 +78,88 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
   const event = input?.hook_event_name;
   let state = readState(env, now);
   try {
-    const window = liveWindow(readWindow(env), now);
-    const { action, hit, hits } = evaluate(window, readRules(env), { resumed: state.resumed });
-    if (action === "none") return null;
+    const session = String(input?.session_id ?? "");
+    const cwd = typeof input?.cwd === "string" ? input.cwd : null;
+    const ctx = context(env, { now, cwd, session, state, usage: readUsage(env) });
+    let changed = false;
+    if (session && cwd) {
+      state.sessions[session] = { cwd: realDir(cwd), t: now };
+      changed = true;
+    }
+
+    // A prompt line measures from the moment the user sent the prompt.
+    if (event === "UserPromptSubmit" && hasKind(ctx.rules, "prompt") && session) {
+      state.prompts[session] = {
+        id: now.toString(36),
+        t: now,
+        ...Object.fromEntries(Object.entries(ctx.window).map(([name, w]) => [name, w.usedPct])),
+      };
+      ctx.prompt = state.prompts[session];
+      changed = true;
+    }
+
+    const { action, hit, hits } = evaluate(ctx);
+    recordHookRun(env, event, now);
+    const latched = hits.filter((h) => h.kind === "pace").map((h) => h.key);
+    if (latched.join() !== state.latched.join()) {
+      state.latched = latched;
+      changed = true;
+    }
+    if (action === "none") {
+      if (changed) writeState(env, state);
+      return null;
+    }
 
     const d = describe(hit, now);
     const resumeHint = readInstall(env)?.resumeHint || "peras resume";
-    let changed = false;
-    const once = (tag, body) => {
-      const key = `${tag}:${hit.key}`;
-      if (state.notified.includes(key)) return false;
-      state.notified.push(key);
-      changed = true;
-      notify("Peras 🍐", body);
-      return true;
-    };
+    const lines = [];
+    const notificationLines = [];
+    const notificationPreferences = preferences(env);
+    let out = null;
 
-    // A pause or an ask already says more than the warnings on the same window.
-    if (action !== "warn") {
-      for (const h of hits) {
-        if (h.action !== "warn" || h.window !== hit.window || state.notified.includes(`warn:${h.key}`)) continue;
-        state.notified.push(`warn:${h.key}`);
-        changed = true;
-      }
+    // Every line crossed is told once, and lines crossed together in one notification.
+    for (const h of hits) {
+      if (h.action === "ask") continue;
+      const tag = `${h.action}:${h.key}`;
+      if (state.notified.includes(tag)) continue;
+      state.notified.push(tag);
+      changed = true;
+      const hd = describe(h, now);
+      if (h.kind !== "manual") recordEvent(env, { kind: h.action === "warn" ? "warning" : "pause", at: now, message: `${hd.what}. ${hd.lifts}.` });
+      const text = h.action === "pause" ? `Paused: ${hd.short}. ${hd.lifts}, or type ! ${resumeHint}` : `${hd.short}.`;
+      lines.push(text);
+      if (notificationPreferences[h.action === "pause" ? "pauses" : "warnings"]) notificationLines.push(text);
     }
 
-    let out = null;
     if (action === "pause") {
-      once("pause", `Paused Claude Code: ${d.name} usage ${d.pct}%. Lifts ${d.reset}, or type ! ${resumeHint} in Claude Code.`);
       if (event === "PreToolUse" || event === "PostToolBatch") out = pauseFor(event, d, resumeHint);
       if (event === "UserPromptSubmit") {
         out = {
-          systemMessage: `Peras: tool use is paused (${d.name} usage ${d.pct}%, your line ${d.at}%). Your message goes through, but tools stay paused until ${d.reset}, or type: ! ${resumeHint}`,
+          systemMessage: `Peras: tool use is paused (${d.short}). Your message goes through, but tools stay paused. ${d.lifts}, or type: ! ${resumeHint}`,
         };
       }
     } else if (action === "ask" && event === "PreToolUse") {
-      // D9: once per session per window. Turning the prompt down ends the turn,
+      // D9: once per session per line. Turning the prompt down ends the turn,
       // so a later tool call in the same session means the user is there.
-      const session = String(input.session_id ?? "");
       const asked = state.asked[session] ?? [];
       if (!asked.includes(hit.key)) {
         state.asked[session] = [...asked, hit.key];
         changed = true;
-        notify("Peras 🍐", `Claude Code is waiting for your OK: ${d.name} usage ${d.pct}%.`);
+        const text = `Claude Code is waiting for your OK: ${d.short}.`;
+        recordEvent(env, { kind: "approval", at: now, message: text });
+        lines.unshift(text);
+        if (notificationPreferences.pauses) notificationLines.unshift(text);
         out = {
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
             permissionDecision: "ask",
-            permissionDecisionReason: `Peras: your ${d.name} usage is ${d.pct}% (your ask line is ${d.at}%). Let Claude keep using tools? Peras asks once per session.`,
+            permissionDecisionReason: `Peras: ${d.what}. Let Claude keep using tools? Peras asks once per session.`,
           },
         };
       }
-    } else if (action === "warn" && event === "PreToolUse") {
-      const body = `${d.name} usage passed ${d.at}% (now ${d.pct}%, resets ${d.reset}).`;
-      if (once("warn", body)) out = { systemMessage: `Peras: ${body}` };
     }
+    if (!out && lines.length) out = { systemMessage: `Peras: ${lines.join(" ")}` };
+    if (notificationLines.length) notify("Peras 🍐", notificationLines.join("\n"), { env });
 
     if (changed) writeState(env, state);
     return out;

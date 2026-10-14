@@ -2,3 +2,16 @@ node_modules/
 *.log
 .DS_Store
 .serena/
+
+# A SwiftBar plugins folder pointed at src/ writes these here.
+src/*.sh
+src/.swiftbarignore
+
+# Vercel links the site/ folder to its project here.
+.vercel
+
+# Local only: release notes for the maintainer, downloaded mascot originals, and the Claude/Codex guide and log.
+RELEASING.md
+research/
+TEAMSHARE.md
+AGENTS.md
