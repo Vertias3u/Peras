@@ -4,8 +4,8 @@
 
 Peras watches your Claude Pro/Max usage window. When it hits the line you set, it pauses the agent or asks you first, so the last stretch of your week is spent on purpose.
 
-> **Status: 0.1 is built and tested against real Claude Code; it is not on npm yet.**
-> ⭐ **Star or 👀 watch** to hear when it lands. Want it sooner? Install from source (below), and open an issue to say how you use it.
+> **0.1: early, and tested against real Claude Code.** Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
+> ⭐ **Star it** if it saves your week.
 
 ---
 
@@ -32,7 +32,7 @@ Defaults (all changeable):
 - 5-hour **95%** → warn
 
 ```sh
-npm i -g peras             # once it is on npm
+npm i -g peras             # Node 18+, no dependencies
 peras setup                # adds the hooks + status line to Claude Code, with a backup
 peras status               # 5h and weekly usage, your lines, paused or not
 peras resume               # lift a pause for the rest of this window
@@ -41,12 +41,7 @@ peras doctor               # check everything is wired up
 peras remove               # takes out exactly what setup added
 ```
 
-From source, today (Node 18+, no dependencies):
-
-```sh
-git clone https://github.com/Vertias3u/Peras.git && cd Peras
-node bin/peras.mjs setup
-```
+Or without installing: `npx peras setup`.
 
 ## How it works
 
