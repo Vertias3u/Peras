@@ -94,4 +94,7 @@ test("the resume hint works as typed, however Peras was installed", async () => 
   assert.equal(resumeHintFor({ onPath: true, root: "/x", command: cmd }), "peras resume");
   assert.equal(resumeHintFor({ onPath: false, root: `/u/.npm/_npx/ab12/node_modules/${name}`, command: cmd }), `npx ${name} resume`);
   assert.equal(resumeHintFor({ onPath: false, root: "/src/peras", command: cmd }), `${cmd} resume`);
+  // npx puts its own temporary bin on PATH while it runs, so "peras" looks installed
+  // when it is not (seen on the published 0.1.0, 2026-10-14).
+  assert.equal(resumeHintFor({ onPath: true, root: `/u/.npm/_npx/ab12/node_modules/${name}`, command: cmd }), `npx ${name} resume`);
 });

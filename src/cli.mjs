@@ -89,8 +89,10 @@ function nodePath(env) {
  * the command it installs is `peras`.
  */
 export function resumeHintFor({ onPath: found, root, command }) {
-  if (found) return "peras resume";
+  // npx first: while it runs, its temporary bin is on PATH, so `found` is true
+  // for a `peras` that is gone the moment setup exits.
   if (root.split(/[\\/]/).includes("_npx")) return `npx ${PACKAGE.name} resume`;
+  if (found) return "peras resume";
   return `${command} resume`;
 }
 

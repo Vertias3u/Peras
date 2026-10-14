@@ -1,6 +1,6 @@
 {
   "name": "peras-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Stop Claude Code before it burns the rest of your limit.",
   "license": "MIT",
   "type": "module",
