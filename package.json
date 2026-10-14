@@ -1,5 +1,5 @@
 {
-  "name": "peras",
+  "name": "peras-cli",
   "version": "0.1.0",
   "description": "Stop Claude Code before it burns the rest of your limit.",
   "license": "MIT",
@@ -30,5 +30,5 @@
     "type": "git",
     "url": "git+https://github.com/Vertias3u/Peras.git"
   },
-  "homepage": "https://peras.vertias.eu"
+  "homepage": "https://github.com/Vertias3u/Peras#readme"
 }

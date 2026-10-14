@@ -32,7 +32,7 @@ Defaults (all changeable):
 - 5-hour **95%** → warn
 
 ```sh
-npm i -g peras             # Node 18+, no dependencies
+npm i -g peras-cli         # Node 18+, no dependencies
 peras setup                # adds the hooks + status line to Claude Code, with a backup
 peras status               # 5h and weekly usage, your lines, paused or not
 peras resume               # lift a pause for the rest of this window
@@ -41,7 +41,7 @@ peras doctor               # check everything is wired up
 peras remove               # takes out exactly what setup added
 ```
 
-Or without installing: `npx peras setup`.
+Or without installing: `npx peras-cli setup`. (The package is `peras-cli`; the command is `peras`.)
 
 ## How it works
 

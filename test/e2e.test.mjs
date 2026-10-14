@@ -86,3 +86,12 @@ test("if the node the hooks were written with disappears, the hook still says so
   peras(["remove"], env);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(env.CLAUDE_CONFIG_DIR, "settings.json"), "utf8")), {});
 });
+
+test("the resume hint works as typed, however Peras was installed", async () => {
+  const { resumeHintFor } = await import("../src/cli.mjs");
+  const name = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).name;
+  const cmd = '"/n/node" "/h/.peras/app/bin/peras.mjs"';
+  assert.equal(resumeHintFor({ onPath: true, root: "/x", command: cmd }), "peras resume");
+  assert.equal(resumeHintFor({ onPath: false, root: `/u/.npm/_npx/ab12/node_modules/${name}`, command: cmd }), `npx ${name} resume`);
+  assert.equal(resumeHintFor({ onPath: false, root: "/src/peras", command: cmd }), `${cmd} resume`);
+});

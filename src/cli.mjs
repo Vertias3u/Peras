@@ -7,7 +7,8 @@ import { claudeDir, perasHome, readInstall, readRules, readState, readWindow, re
 import { install, uninstall, inspect, settingsPath } from "./settings.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
+const PACKAGE = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+const VERSION = PACKAGE.version;
 const PASSCONTROL = "https://passcontrol.vertias.eu";
 
 const HELP = `Peras 🍐 ${VERSION}: stop Claude Code before it burns the rest of your limit.
@@ -82,11 +83,21 @@ function nodePath(env) {
   return process.execPath;
 }
 
+/**
+ * The hint in a pause message must work as typed, however Peras was installed.
+ * The npm package is `peras-cli` (npm refused `peras` as too close to `pegjs`);
+ * the command it installs is `peras`.
+ */
+export function resumeHintFor({ onPath: found, root, command }) {
+  if (found) return "peras resume";
+  if (root.split(/[\\/]/).includes("_npx")) return `npx ${PACKAGE.name} resume`;
+  return `${command} resume`;
+}
+
 function setup(env, out) {
   const bin = copyRuntime(env);
   const command = `"${nodePath(env)}" "${bin}"`;
-  // The hint in a pause message must work as typed, however Peras was installed.
-  const resumeHint = onPath("peras", env) ? "peras resume" : ROOT.includes(`${path.sep}_npx${path.sep}`) ? "npx peras resume" : `${command} resume`;
+  const resumeHint = resumeHintFor({ onPath: onPath("peras", env), root: ROOT, command });
   const result = install({ env, command, resumeHint, version: VERSION });
   out(`Peras 🍐 is ${result.changed ? "set up" : "already set up"} in ${tilde(result.target, env)}`);
   if (result.backupPath && result.changed) out(`  backup of your settings: ${tilde(result.backupPath, env)}`);
