@@ -4,8 +4,8 @@
 
 Peras watches your Claude Pro/Max usage window. When it hits the line you set, it pauses the agent or asks you first, so the last stretch of your week is spent on purpose.
 
-> **Status: not built yet.** This repo is here to find out if people want it.
-> ⭐ **Star or 👀 watch** to get it when 0.1 ships. Want it? Open an issue and say how you'd use it.
+> **Status: 0.1 is built and tested against real Claude Code; it is not on npm yet.**
+> ⭐ **Star or 👀 watch** to hear when it lands. Want it sooner? Install from source (below), and open an issue to say how you use it.
 
 ---
 
@@ -22,21 +22,30 @@ At a threshold you pick, one of three things happens:
 | Action | What happens |
 |---|---|
 | **warn** | A desktop notification. The agent keeps going. |
-| **ask** | The next tool call waits for your OK in Claude Code's own permission prompt. With Remote Control on, you can approve it **from your phone**. |
+| **ask** | The next tool call waits for your OK in Claude Code's own permission prompt, once per session. With Remote Control on, you can approve it **from your phone**. |
 | **pause** | Tool calls are refused with a clear reason and the turn ends. It lifts when the window resets, or when you run `peras resume`. |
 
-Planned defaults (all changeable):
+Defaults (all changeable):
 
 - weekly **75%** → warn
 - weekly **90%** → pause
 - 5-hour **95%** → warn
 
 ```sh
-npm i -g peras
-peras setup      # adds the hooks + status line to Claude Code, with a backup
-peras status     # 5h and weekly usage, thresholds, paused or not
-peras resume     # lift a pause for the rest of this window
-peras remove     # takes out exactly what setup added
+npm i -g peras             # once it is on npm
+peras setup                # adds the hooks + status line to Claude Code, with a backup
+peras status               # 5h and weekly usage, your lines, paused or not
+peras resume               # lift a pause for the rest of this window
+peras set weekly 85 pause  # change a line: 5h|weekly, warn|ask|pause, 1-100|off
+peras doctor               # check everything is wired up
+peras remove               # takes out exactly what setup added
+```
+
+From source, today (Node 18+, no dependencies):
+
+```sh
+git clone https://github.com/Vertias3u/Peras.git && cd Peras
+node bin/peras.mjs setup
 ```
 
 ## How it works
@@ -51,6 +60,8 @@ peras remove     # takes out exactly what setup added
 
 - **Pro/Max only.** Claude Code only reports the usage window for claude.ai subscriptions. API-key users have no window to watch.
 - **Interactive sessions first.** `claude -p` runs don't refresh the status line. Peras uses the last reading from any interactive session, which is never higher than the truth, so a pause there is always justified, but it can be late.
+- **A paused `claude -p` run just ends.** It exits without an error, so a script can't tell it was paused. Check `peras status`.
+- **Changed your Node install?** Run `peras setup` again. If the hooks can't start node, they say so instead of passing silently.
 - **A guard rail, not a wall.** Hooks run inside Claude Code. Peras protects your own sessions; it is not security against a hostile process.
 - **No phone ping when it asks.** You can approve from your phone, but Claude Code doesn't push a notification for these prompts, so open the app to see it.
 

@@ -1,0 +1,34 @@
+{
+  "name": "peras",
+  "version": "0.1.0",
+  "description": "Stop Claude Code before it burns the rest of your limit.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "peras": "bin/peras.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "usage-limits",
+    "hooks",
+    "statusline"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vertias3u/Peras.git"
+  },
+  "homepage": "https://peras.vertias.eu"
+}
