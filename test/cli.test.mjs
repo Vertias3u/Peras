@@ -11,6 +11,8 @@ import { readingFrom } from "../src/window.mjs";
 import { writeUsage } from "../src/usage.mjs";
 import { stripAnsi } from "../src/look.mjs";
 import { sandbox, NOW, statusInput, inHours } from "./helpers.mjs";
+// The installed hooks are this version, so commands don't first refresh them as stale.
+const VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 const H = 3600_000;
 async function run(env, ...args) {
@@ -168,7 +170,7 @@ test("menu bar: migrates the cached executable plugin to a fresh streaming ident
   fs.writeFileSync(oldFile, "old renderer");
   fs.mkdirSync(env.PERAS_HOME, { recursive: true });
   fs.writeFileSync(path.join(env.PERAS_HOME, "menubar.json"), JSON.stringify({ file: oldFile, display: "pear" }));
-  writeInstall(env, { command: `"${process.execPath}" "/x/peras.mjs"`, version: "0.2.0" });
+  writeInstall(env, { command: `"${process.execPath}" "/x/peras.mjs"`, version: VERSION });
   assert.equal((await run(env, "menubar", "install")).code, 0);
   assert.equal(fs.existsSync(oldFile), false);
   const record = JSON.parse(fs.readFileSync(path.join(env.PERAS_HOME, "menubar.json"), "utf8"));
@@ -181,7 +183,7 @@ test("menu bar: installs a SwiftBar script, renders, and is removed with Peras",
   const { env, root } = sandbox();
   env.PERAS_SWIFTBAR_DIR = path.join(root, "swiftbar");
   assert.match((await run(env, "menubar", "install")).text, /Run `peras setup` first/);
-  writeInstall(env, { command: `"${process.execPath}" "/x/peras.mjs"`, version: "0.2.0" });
+  writeInstall(env, { command: `"${process.execPath}" "/x/peras.mjs"`, version: VERSION });
   assert.match((await run(env, "menubar", "install")).text, /in the menu bar/);
   const file = JSON.parse(fs.readFileSync(path.join(env.PERAS_HOME, "menubar.json"), "utf8")).file;
   const body = fs.readFileSync(file, "utf8");
@@ -229,7 +231,7 @@ test("menu bar: installs a SwiftBar script, renders, and is removed with Peras",
 test("menu bar display switches title only and survives reinstall", async () => {
   const { env, root } = sandbox();
   env.PERAS_SWIFTBAR_DIR = path.join(root, "swiftbar");
-  writeInstall(env, { command: `"${process.execPath}" "/x/peras.mjs"`, version: "0.2.0" });
+  writeInstall(env, { command: `"${process.execPath}" "/x/peras.mjs"`, version: VERSION });
   await run(env, "menubar", "install");
   recordReading(env, readingFrom(statusInput({ fiveHour: 20, sevenDay: 60 }), NOW));
   const detailed = (await run(env, "menubar")).text.split("\n");

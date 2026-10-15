@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 (2026-10-15)
+
+- The menu bar has **Quit** at the bottom, and `peras menubar quit` does the same. Protection keeps running without it.
+
 ## 0.2.0 (2026-10-15)
 
 Peras now watches Codex as well as Claude Code, tells you where the week is headed, and can draw its lines more finely.

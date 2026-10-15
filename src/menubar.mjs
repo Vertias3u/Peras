@@ -97,6 +97,21 @@ export function install(env, { command, folder }) {
   return file;
 }
 
+/** Quit SwiftBar, the app that draws the menu. The hooks don't need it, so protection keeps running. */
+export function quit() {
+  const quit = spawnSync("osascript", ["-e", 'if application "SwiftBar" is running then tell application "SwiftBar" to quit'], { timeout: 5000 });
+  if (quit.status !== 0) spawnSync("pkill", ["-x", "SwiftBar"], { timeout: 5000 });
+}
+
+/** Quit takes every SwiftBar plugin with it, so with others in the folder the item says so. */
+function sharesSwiftBar(self) {
+  try {
+    return fs.readdirSync(path.dirname(self), { withFileTypes: true }).some((f) => f.isFile() && !f.name.startsWith(".") && f.name !== path.basename(self) && (fs.statSync(path.join(path.dirname(self), f.name)).mode & 0o111));
+  } catch {
+    return false;
+  }
+}
+
 export function remove(env) {
   const file = installed(env);
   if (file) fs.rmSync(file, { force: true });
@@ -201,5 +216,6 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
   for (const [key, label] of [["warnings", "Warnings"], ["pauses", "Pauses and approval requests"], ["resets", "Usage resets"]]) {
     lines.push(`${run(["menubar", "preference", key, prefs[key] ? "off" : "on"], `----${label}`)}${self ? ` checked=${prefs[key]}` : ""}`);
   }
+  if (self) lines.push("---", run(["menubar", "quit"], sharesSwiftBar(self) ? "Quit SwiftBar (all plugins)" : "Quit").replace(" refresh=true", ""));
   return lines.join("\n");
 }

@@ -55,6 +55,7 @@ const HELP = `Peras 🍐 ${VERSION}: stop Claude Code or Codex before it burns t
 
   peras menubar install       🍐 in the macOS menu bar (needs the free SwiftBar)
   peras menubar display pear|usage    choose pear only, or icons and percentages
+  peras menubar quit          quit the menu bar (protection keeps running)
   peras menubar preference mascots|weekly on|off
   peras remove                take out exactly what setup added
   peras connect               what PassControl adds on top
@@ -442,8 +443,14 @@ function eventTime(at, now) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${resetTime(at / 1000, at)}`;
 }
 
-async function doMenubar(env, out, now, args, reader) {
+async function doMenubar(env, out, now, args, reader, quitMenubar = menubar.quit) {
   const [sub, folder] = args;
+  if (sub === "quit") {
+    if (args.length !== 1) throw new Error("Use peras menubar quit");
+    try { await quitMenubar(); } catch {}
+    out("Quit the menu bar. Protection keeps running: the hooks don't need it. Open SwiftBar to bring the 🍐 back.");
+    return 0;
+  }
   if (sub === "test") {
     if (args.length !== 1) throw new Error("Use peras menubar test");
     return await protectionTest(env, out, now, reader);
@@ -574,9 +581,9 @@ function refreshStaleHooks(env, out) {
   out(`(Updated the hooks from Peras ${before} to ${VERSION} first. Restart open sessions to pick them up.)`);
 }
 
-export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader } = {}) {
+export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar } = {}) {
   const [command, ...rest] = args;
-  if (WRITES.has(command) && !(command === "menubar" && (!rest[0] || rest[0] === "show"))) {
+  if (WRITES.has(command) && !(command === "menubar" && (!rest[0] || rest[0] === "show" || rest[0] === "quit"))) {
     try {
       refreshStaleHooks(env, out);
     } catch (error) {
@@ -657,7 +664,7 @@ export async function main(args, { env = process.env, out = console.log, now = D
       case "history":
         return history(env, out, now);
       case "menubar":
-        return await doMenubar(env, out, now, rest, codexReader);
+        return await doMenubar(env, out, now, rest, codexReader, quitMenubar);
       case "doctor":
         return doctor(env, out, now);
       case "notify":

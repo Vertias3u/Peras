@@ -9,6 +9,8 @@ import { recordReading, pauseNow, readWindow, writeRules, writeInstall } from ".
 import { sandbox, NOW, inHours } from "./helpers.mjs";
 import { runHook } from "../src/hook.mjs";
 import { realDir } from "../src/rules.mjs";
+// The installed hooks are this version, so commands don't first refresh them as stale.
+const VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 test("Codex's compact terminal readout colors usage and supports both color opt-outs", async () => {
   const { env } = sandbox();
@@ -117,7 +119,7 @@ test("menu bar detects and resumes folder stops from agent sessions for both pro
     fs.mkdirSync(dir);
     const project = realDir(dir);
     const scoped = provider === "codex" ? codexEnv(env) : env;
-    writeInstall(scoped, { command: `"${process.execPath}" "/x/peras.mjs"`, version: "0.2.0" });
+    writeInstall(scoped, { command: `"${process.execPath}" "/x/peras.mjs"`, version: VERSION });
     await run(env, ["menubar", "install"]);
     recordReading(scoped, { seven_day: { usedPct: 70, resetsAt: inHours(72), seenAt: NOW } });
     writeRules(scoped, [{ kind: "window", window: "seven_day", at: 60, action: "pause", project }]);
