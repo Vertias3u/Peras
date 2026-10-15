@@ -9,9 +9,9 @@
 
 **Stop Claude Code or Codex before it burns the rest of your limit.**
 
-Peras watches your Claude Pro/Max usage window, tells you where it's headed, and pauses the agent (or asks you first) at the line you set. The last stretch of your week gets spent on purpose.
+Peras watches your Claude Pro/Max usage window, tells you where it's headed, and pauses the agent (or asks you first) at the line you set. Spend the last of your week on purpose.
 
-> **0.2: early, and tested against real Claude Code.** Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
+> **0.3: early, and tested against real Claude Code.** Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
 > ⭐ **Star it** if it saves your week.
 
 ```sh
