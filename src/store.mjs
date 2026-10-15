@@ -1,3 +1,4 @@
+import { allowanceMeters, observeAllowances } from "./allowances.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -53,7 +54,7 @@ export function readWindow(env) {
 }
 
 /** Saves a reading over the stored window, one window at a time. Never saves an absence. */
-export function recordReading(env, reading) {
+export function recordReading(env, reading, options = {}) {
   if (!reading) return;
   let stored = null;
   try {
@@ -62,6 +63,7 @@ export function recordReading(env, reading) {
     // A damaged file is replaced by the fresh reading.
   }
   writeJsonAtomic(windowFile(env), mergeWindow(stored, reading));
+  observeAllowances(env, stored, reading, { now: reading.seven_day?.seenAt ?? Date.now(), ...options });
 }
 
 // Lines a version added to the defaults. A config saved by an older version gets
@@ -159,6 +161,7 @@ export function context(env, { now = Date.now(), cwd = null, session = null, sta
   const window = liveWindow(readWindow(env), now);
   return {
     window,
+    allowances: allowanceMeters(env, now, window),
     rules: readRules(env),
     now,
     cwd,
@@ -181,6 +184,15 @@ export function sessionVerdict(ctx, state) {
   const rank = { warn: 1, ask: 2, pause: 3 };
   unique.sort((a, b) => rank[b.action] - rank[a.action] || (b.at ?? 0) - (a.at ?? 0));
   return { hits: unique, hit: unique[0] ?? null, action: unique[0]?.action ?? "none" };
+}
+
+/**
+ * The stops a notification's Resume button would lift, across every session.
+ * The hook captures them when it notifies and the button compares them again,
+ * so both must compute them the same way.
+ */
+export function resumableKeys(ctx, state) {
+  return sessionVerdict({ ...ctx, cwd: null, prompt: null }, state).hits.filter((h) => h.action !== "warn").map((h) => h.key).sort();
 }
 
 /**

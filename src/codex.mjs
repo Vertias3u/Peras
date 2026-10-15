@@ -1,8 +1,10 @@
+import { readPlanning } from "./planning.mjs";
+import { readBudgetRules, touchAllowanceSession } from "./allowances.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { readJson, writeJsonAtomic, perasHome, dirKey, installFile, context, readState, writeState, readInstall, writeInstall, readRules } from "./store.mjs";
+import { readJson, writeJsonAtomic, perasHome, dirKey, installFile, context, readState, writeState, readInstall, writeInstall, readRules, resumableKeys } from "./store.mjs";
 import { evaluate, realDir } from "./rules.mjs";
 import { describe } from "./hook.mjs";
 import { windowText } from "./window.mjs";
@@ -163,15 +165,16 @@ export function removeCodex(env) {
 export async function runCodexHook({ input, env = process.env, now = Date.now(), reader, notify = () => {} } = {}) {
   const scoped = codexEnv(env);
   let refreshError;
+  touchAllowanceSession(scoped, String(input?.session_id ?? ""), input?.cwd, now);
   // Prompt allowances need a current baseline at each prompt, and recent usage
   // at tool calls. The menu's minute-long cache could otherwise hide the rise.
-  const promptRule = readRules(scoped).some(rule => rule.kind === "prompt" && !rule.off);
+  const promptRule = readRules(scoped).some(rule => rule.kind === "prompt" && !rule.off) || readBudgetRules(scoped).length > 0 || Boolean(readPlanning(scoped).pacing);
   const force = promptRule && input?.hook_event_name === "UserPromptSubmit";
   const maxAge = promptRule ? PROMPT_RULE_MS : CACHE_MS;
   try { await refreshCodex(env, now, { reader, force, maxAge }); } catch (error) { refreshError = error; }
   const state = readState(scoped, now);
   const session = String(input?.session_id ?? "");
-  if (session && typeof input?.cwd === "string") state.sessions[session] = { cwd: realDir(input.cwd), t: now };
+  if (session && typeof input?.cwd === "string") state.sessions[session] = { ...state.sessions[session], cwd: realDir(input.cwd), t: now, startedAt: state.sessions[session]?.startedAt ?? now, event: input.hook_event_name, ...(input.hook_event_name === "PreToolUse" ? { lastToolAt: now } : {}) };
   const ctx = context(scoped, { now, cwd: input?.cwd, session, state, usage: readUsage(scoped) });
   if (input?.hook_event_name === "UserPromptSubmit") {
     state.prompts[session] = { id: now.toString(36), t: now, ...Object.fromEntries(Object.entries(ctx.window).map(([name, w]) => [name, w.usedPct])) };
@@ -187,7 +190,7 @@ export async function runCodexHook({ input, env = process.env, now = Date.now(),
   const notification = `${action}:${hit.key}`;
   if (!state.notified.includes(notification) && hit.kind !== "manual") recordEvent(scoped, { kind: action === "warn" ? "warning" : action === "ask" ? "approval" : "pause", at: now, message: `${d.what}. ${d.lifts}.` });
   if (!state.notified.includes(notification) && preferences(env)[action === "warn" ? "warnings" : "pauses"]) {
-    notify("Peras 🍐 Codex", `${action === "warn" ? "Warning" : "Paused"}: ${d.short}. ${d.lifts}.`, { env });
+    notify("Peras 🍐 Codex", `${action === "warn" ? "Warning" : "Paused"}: ${d.short}. ${d.lifts}.`, { env, provider: "codex", category: action === "warn" ? "status" : "pause", pauseKeys: resumableKeys(ctx, state) });
   }
   if (action === "warn") {
     const tag = `warn:${hit.key}`;

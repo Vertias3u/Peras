@@ -1,3 +1,7 @@
+import { profileSummary } from "./planning.mjs";
+import { alternativeHint } from "./alternative.mjs";
+import { budgetText } from "./allowances.mjs";
+import { unusedReminder } from "./unused-reminders.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -20,7 +24,7 @@ import { perasHome, readJson, writeJsonAtomic } from "./store.mjs";
 // upgrading from the old once-a-minute renderer to a Streamable renderer.
 function rendererRevision() {
   const revision = createHash("sha256");
-  for (const name of ["../package.json", "menubar.mjs", "menubar-image.mjs", "menubar-atlas.json", "menubar-stream.mjs", "mascots.mjs", "mascot-atlas.json", "status-page.mjs", "preferences.mjs", "hook-health.mjs", "reset-notifications.mjs", "protection-test.mjs", "events.mjs"]) {
+  for (const name of ["../package.json", "menubar.mjs", "menubar-image.mjs", "menubar-atlas.json", "menubar-stream.mjs", "mascots.mjs", "mascot-atlas.json", "status-page.mjs", "preferences.mjs", "hook-health.mjs", "reset-notifications.mjs", "protection-test.mjs", "events.mjs", "unused-reminders.mjs", "notify.mjs", "notification-worker.mjs", "notification-native.mjs", "notification-native.json", "notification-icon.json", "allowances.mjs", "allowance-rules.mjs", "alternative.mjs", "review.mjs", "settings-server.mjs", "settings-page.mjs", "planning.mjs", "calendar.mjs", "sessions.mjs", "notification-actions.mjs"]) {
     revision.update(fs.readFileSync(new URL(name, import.meta.url)));
   }
   return revision.digest("hex").slice(0, 16);
@@ -136,7 +140,7 @@ export function remove(env) {
 export function render({ ctx, usage, env, now, verdict, product = "Claude Code", prefix = [], freshness }) {
   const self = env.SWIFTBAR_PLUGIN_PATH || installed(env);
   const run = (args, label, extra = "") =>
-    self ? `${label} | bash=${JSON.stringify(self)} ${[...prefix, ...args].map((a, i) => `param${i + 1}=${a}`).join(" ")} terminal=false refresh=true${extra}` : label;
+    self ? `${label} | bash=${JSON.stringify(self)} ${[...prefix, ...args].map((a, i) => `param${i + 1}=${/^[\w.-]+$/.test(String(a)) ? a : JSON.stringify(String(a))}`).join(" ")} terminal=false refresh=true${extra}` : label;
   const live = ctx.window;
   const { action, hit, hits } = verdict;
   const week = live.seven_day;
@@ -175,7 +179,7 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
   const prefs = preferences(env);
   const self = env.SWIFTBAR_PLUGIN_PATH || installed(env);
   const run = (args, label, terminal = false) => self
-    ? `${label} | bash=${JSON.stringify(self)} ${args.map((a, i) => `param${i + 1}=${a}`).join(" ")} terminal=${terminal} refresh=true`
+    ? `${label} | bash=${JSON.stringify(self)} ${args.map((a, i) => `param${i + 1}=${/^[\w.-]+$/.test(String(a)) ? a : JSON.stringify(String(a))}`).join(" ")} terminal=${terminal} refresh=true`
     : label;
   const readings = snapshots.map((s) => ({ provider: s.provider, pct: s.ctx.window.five_hour?.usedPct, stopped: s.verdict.action === "pause" || s.verdict.action === "ask" }));
   const mode = displayMode(env);
@@ -190,6 +194,14 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
     const state = s.verdict.action === "pause" ? " · paused" : s.verdict.action === "ask" ? " · needs OK" : s.error ? " · offline" : "";
     const nameImage = providerLabelImage(s.provider);
     lines.push(`${state.trim()} | image=${nameImage.png.toString("base64")} width=${nameImage.width} height=${nameImage.height}`);
+    const profiles = s.env ? profileSummary(s.env) : { names: [] };
+    if (profiles.active) lines.push(`Profile: ${profiles.active}${profiles.modified ? " (modified)" : ""} | size=11`);
+    if (profiles.names.length) {
+      lines.push("Switch profile");
+      // A leading "-" would read as another submenu level: show it as a non-breaking hyphen.
+      for (const name of profiles.names) lines.push(run([...prefix, "profile", "use", name], `--${name.replace(/^-+/, (dashes) => "\u2011".repeat(dashes.length))}`));
+    }
+    if ((s.ctx.allowances || []).some(m => m.period === "daily")) lines.push(run([...prefix, "extra", "daily", "3", "1h"], "Extra 3 points for 1h"));
     if (s.health) lines.push(`${s.health.label} | size=11`);
     for (const [name, caption] of [["five_hour", "5h"], ["seven_day", "Week"]]) {
       if (name === "seven_day" && !prefs.weekly) continue;
@@ -202,6 +214,11 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
         lines.push(`${caption.padEnd(4)} ${String(pct).padStart(3)}% · ${countdown(w.resetsAt, now)} (${resetTime(w.resetsAt, now)}) | image=${light.png.toString("base64")},${dark.png.toString("base64")} width=${dark.width} height=${dark.height} font=Menlo size=11 refresh=true`);
       } else lines.push(`${caption.padEnd(4)} – | font=Menlo size=11`);
     }
+    for (const meter of s.ctx.allowances || []) lines.push(`${budgetText({ ...meter, ...(meter.project ? { project: path.basename(meter.project) || meter.project } : {}) }).replaceAll("|", "¦").replaceAll("\n", " ")} | size=11`);
+    const hint = alternativeHint(s, snapshots, now, { compact: true });
+    if (hint) lines.push(`${hint} | size=11`);
+    const reminder = prefs.unused && unusedReminder(s, now);
+    if (reminder) lines.push(`${reminder.menu} | size=11`);
     if (paused) {
       const manual = s.ctx.manualPause;
       const confirmation = manual ? (manual.until ? `Paused until ${resetTime(manual.until / 1000, now)} · ${countdown(manual.until / 1000, now)} left` : "Paused until you resume") : `${s.verdict.action === "pause" ? "Paused" : "Asking"}: ${describe(s.verdict.hit, now).short}`;
@@ -216,6 +233,10 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
     }
   }
   lines.push("---", `Status… | href=${JSON.stringify(statusPageURL(env))}`, "Settings");
+  lines.push(run(["settings"], "--Rules and allowances…"));
+  lines.push(`--Session overview… | href=${JSON.stringify(`${statusPageURL(env)}#sessions`)}`);
+  lines.push(`--Weekly comparison… | href=${JSON.stringify(`${statusPageURL(env)}#weekly-comparison`)}`);
+  lines.push(`--Weekly review… | href=${JSON.stringify(`${statusPageURL(env)}#weekly-review`)}`);
   lines.push(`--${explainLimits()}`);
   lines.push(`${run(["menubar", "test"], "--Protection test…")} href=${JSON.stringify(statusPageURL(env))}`);
   lines.push(`--Recent events… | href=${JSON.stringify(`${statusPageURL(env)}#recent-events`)}`);
@@ -226,7 +247,7 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
     lines.push(`${run(["menubar", "preference", key, prefs[key] ? "off" : "on"], `----${label}`)}${self ? ` checked=${prefs[key]}` : ""}`);
   }
   lines.push("--Notifications");
-  for (const [key, label] of [["warnings", "Warnings"], ["pauses", "Pauses and approval requests"], ["resets", "Usage resets"]]) {
+  for (const [key, label] of [["warnings", "Warnings"], ["pauses", "Pauses and approval requests"], ["resets", "Usage resets"], ["unused", "Use it or lose it reminders"]]) {
     lines.push(`${run(["menubar", "preference", key, prefs[key] ? "off" : "on"], `----${label}`)}${self ? ` checked=${prefs[key]}` : ""}`);
   }
   if (self) lines.push("---", run(["menubar", "quit"], sharesSwiftBar(self) ? "Quit SwiftBar (all plugins)" : "Quit").replace(" refresh=true", ""));

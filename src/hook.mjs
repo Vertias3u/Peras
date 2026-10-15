@@ -1,6 +1,7 @@
+import { touchAllowanceSession } from "./allowances.mjs";
 import { WINDOWS, resetTime } from "./window.mjs";
 import { evaluate, realDir } from "./rules.mjs";
-import { context, readInstall, readState, writeState } from "./store.mjs";
+import { context, readInstall, readState, resumableKeys, writeState } from "./store.mjs";
 import { readUsage } from "./usage.mjs";
 import { recordHookRun } from "./hook-health.mjs";
 import { preferences } from "./preferences.mjs";
@@ -30,6 +31,14 @@ export function describe(hit, now) {
         short: "paused by you",
         lifts: hit.until ? `It lifts at ${resetTime(hit.until / 1000, now)}` : "It stays paused until you resume",
       };
+    case "pacing":
+      if (hit.workday === false) return { what: "today is not a working day in your pacing plan, so agents get no share of the week today", short: "not a working day (pacing)", lifts: `It lifts at local midnight (${reset}), or when you turn pacing off` };
+      return { what: `today’s workday share reached ${hit.spent} of ${hit.at} points, keeping ${hit.reserve}% reserved for later`, short: `workday pace ${hit.spent}/${hit.at} points`, lifts: `It lifts at local midnight (${reset})` };
+    case "daily":
+    case "project": {
+      const label = hit.kind === "daily" ? "today's observed usage" : `estimated usage for ${hit.project}`;
+      return { what: `${label} reached ${hit.spent} percentage points of the weekly allowance (limit ${hit.at})`, short: `${hit.kind === "daily" ? "today" : "project ≈"} ${hit.spent}/${hit.at} points`, lifts: hit.kind === "daily" ? `It lifts at local midnight (${reset})` : `It lifts at the weekly reset ${reset}` };
+    }
     case "pace": {
       const out = hit.runsOutAt ? resetTime(hit.runsOutAt / 1000, now) : null;
       return {
@@ -80,10 +89,11 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
   try {
     const session = String(input?.session_id ?? "");
     const cwd = typeof input?.cwd === "string" ? input.cwd : null;
+    touchAllowanceSession(env, session, cwd, now);
     const ctx = context(env, { now, cwd, session, state, usage: readUsage(env) });
     let changed = false;
     if (session && cwd) {
-      state.sessions[session] = { cwd: realDir(cwd), t: now };
+      state.sessions[session] = { ...state.sessions[session], cwd: realDir(cwd), t: now, startedAt: state.sessions[session]?.startedAt ?? now, event, ...(event === "PreToolUse" ? { lastToolAt: now } : {}) };
       changed = true;
     }
 
@@ -159,7 +169,7 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
       }
     }
     if (!out && lines.length) out = { systemMessage: `Peras: ${lines.join(" ")}` };
-    if (notificationLines.length) notify("Peras 🍐", notificationLines.join("\n"), { env });
+    if (notificationLines.length) notify("Peras 🍐", notificationLines.join("\n"), { env, provider: "claude", category: action === "pause" || action === "ask" ? "pause" : "status", pauseKeys: resumableKeys(ctx, state) });
 
     if (changed) writeState(env, state);
     return out;

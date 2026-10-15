@@ -2,6 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { once } from "node:events";
 import { renderCombined } from "./menubar.mjs";
 import { writeStatusPage } from "./status-page.mjs";
+import { checkUnusedReminders } from "./unused-reminders.mjs";
 import { checkResets } from "./reset-notifications.mjs";
 
 /** SwiftBar's stream protocol: complete menus followed by ~~~, eight times a second. */
@@ -10,6 +11,7 @@ export async function streamMenubar({ env, getSnapshots, write = (text) => proce
   const started = clock();
   writeStatusPage(env, snapshots, started);
   checkResets(env, snapshots, started);
+  checkUnusedReminders(env, snapshots, started);
   let lastSnapshot = started, pending = null;
   let outputCount = 0;
   try {
@@ -19,7 +21,7 @@ export async function streamMenubar({ env, getSnapshots, write = (text) => proce
       // Fetch in the background so a slow/offline app-server cannot stall animation.
       if (now - lastSnapshot >= 1000 && !pending) {
         lastSnapshot = now;
-        pending = Promise.resolve().then(getSnapshots).then((next) => { snapshots = next; writeStatusPage(env, snapshots, clock()); checkResets(env, snapshots, clock()); }).catch(() => {}).finally(() => { pending = null; });
+        pending = Promise.resolve().then(getSnapshots).then((next) => { snapshots = next; writeStatusPage(env, snapshots, clock()); checkResets(env, snapshots, clock()); checkUnusedReminders(env, snapshots, clock()); }).catch(() => {}).finally(() => { pending = null; });
       }
       const menu = renderCombined({ snapshots, env, now, animationTime: now - started });
       const accepted = write(`${menu}\n~~~\n`);

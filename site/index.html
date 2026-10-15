@@ -238,7 +238,7 @@
     <span><span class="ps">$ </span>npx peras-cli setup</span>
     <button class="copy" type="button" id="copy"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button>
   </div>
-  <p class="small">v0.2 · free, MIT, local · Node 18+, no dependencies · <span class="mono">peras remove</span> puts everything back</p>
+  <p class="small">v0.3 · free, MIT, local · Node 18+, no dependencies · <span class="mono">peras remove</span> puts everything back</p>
 </header>
 
 <figure>
@@ -322,6 +322,28 @@
     <div><span>Overnight runs, at 50%</span><code>peras set 01:00-08:00 weekly 50 pause</code></div>
     <div><span>Just this folder, at 60%</span><code>peras set --here weekly 60 pause</code></div>
   </div>
+</section>
+
+<section aria-labelledby="plan">
+  <h2 id="plan">Spend the week on purpose.</h2>
+  <div class="acts">
+    <div class="act"><b class="g">A daily allowance</b><p>Let an agent use ten percentage points today, with a fresh allowance at local midnight.</p></div>
+    <div class="act"><b>Room for each project</b><p>Set an estimated weekly allowance for a folder. Parallel account activity can count too; tracking gaps can miss usage.</p></div>
+    <div class="act"><b>See what happened</b><p>Weekly charts show observed usage, last-known remaining allowance, recording gaps and retained interventions.</p></div>
+  </div>
+  <div class="lines">
+    <div><span>Set today's allowance</span><code>peras budget daily 10 pause</code></div>
+    <div><span>Give this project five points</span><code>peras budget --here weekly 5 pause</code></div>
+    <div><span>Edit rules and allowances visually</span><code>peras settings</code></div>
+    <div><span>Keep a reserve across working days</span><code>peras pace 20</code></div>
+    <div><span>Switch saved allowance profiles</span><code>peras profile use "Normal day"</code></div>
+    <div><span>Give today three more points for an hour</span><code>peras extra daily 3 1h</code></div>
+    <div><span>See recently observed sessions</span><code>peras sessions</code></div>
+    <div><span>Review the week in Terminal</span><code>peras review</code></div>
+    <div><span>Compare completed tracked weeks</span><code>peras compare</code></div>
+    <div><span>“Use it or lose it” · 20%+ left within 48h of reset</span><code>peras notify unused on</code></div>
+  </div>
+  <p class="note">Allowances count observed increases in your weekly percentage. Daily tracking begins with the first reading each day. Reminders require the menu bar and a fresh reading. When one agent pauses, the menu can point out fresh allowance on the other.</p>
 </section>
 
 <section class="center" aria-labelledby="codex">

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 (2026-10-15)
+
+- Workday pacing splits spendable weekly allowance above a chosen reserve across remaining working days. Today's share stays fixed while working, and switching back to a profile with the same plan keeps it; changing the reserve or working days recalculates it from current usage. On non-working days agents get no share, so the plan's warn, ask or pause applies all day. `peras pace 20` starts a Monday–Friday plan.
+- Named allowance profiles save and restore rules, allowances and pacing without resetting usage counters or clearing pauses; switch them from the menu or editor.
+- Temporary extra points extend a daily/pacing or project allowance for an hour or until midnight. Other stops remain in force; grants can be revoked and expire at weekly reset too.
+- Session overview shows recent observed hook activity, folders and applicable rules, with no claim that the sessions are still running.
+- Weekly comparison shows peak, last-known remaining and retained intervention changes between two completed observed weeks, with coverage caveats.
+- Native macOS notification actions open Status, resume the original unchanged pause for an hour, or snooze an unused-allowance reminder. Actions work through the pear helper after the original sender exits.
+- Daily allowances cap observed percentage-point increases in weekly usage and reset at local midnight. `peras budget daily 10 pause`; Codex supports the same commands.
+- Project allowances conservatively estimate account increases while a session in that folder is active. `peras budget --here weekly 5 pause`. Parallel account use can count too; gaps can miss usage. Totals reset with the provider's week.
+- **Rules and allowances…** in the pear menu, or `peras settings`, opens a private local editor for both agents' rules, schedules, folder overrides, allowances, and notification/display preferences.
+- **Weekly review…** in the menu shows usage charts, last-observed remaining allowance, gaps, and retained intervention counts. `peras review` and `peras codex review` provide the same summaries in Terminal.
+- When an agent pauses, the menu and Status show the other agent's remaining allowance if both of its windows have fresh readings and it has no active stop.
+- Opt-in **Use it or lose it reminders** notify once per weekly window when at least 20% remains and reset is within 48 hours. `peras notify unused on` enables them.
+- macOS notifications use a native Peras app with the pixel pear icon. `peras notify test` waits for the sender and reports permission or delivery errors. The universal helper is bundled; users need no compiler.
+
 ## 0.2.2 (2026-10-15)
 
 - `peras menubar open` launches SwiftBar again after **Quit**; the quit message and `peras menubar` point to it.

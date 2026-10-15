@@ -1,3 +1,4 @@
+import { budgetText } from "./allowances.mjs";
 import fs from "node:fs";
 import { codexEnv, codexExecutable, inspectCodex, refreshCodex } from "./codex.mjs";
 import { context, readInstall, readState, readWindow, sessionVerdict } from "./store.mjs";
@@ -56,6 +57,7 @@ export async function snapshot(env, now, { provider = "claude", refresh = false,
 export function statusText(s, now) {
   const { ctx, verdict } = s;
   const lines = [`${s.label}: ${windowText(ctx.window, { resets: true, now }) || "no live usage window"}`, `  ${s.freshness.text}`];
+  for (const meter of s.ctx.allowances || []) lines.push(`  ${budgetText(meter)}`);
   if (s.error) lines.push(`  Could not refresh: ${s.error}. Showing saved readings while their windows remain valid.`);
   if (verdict.action === "none") lines.push(Object.keys(ctx.window).length ? "  ✓ Under every active line." : "  Usage thresholds cannot be evaluated yet.");
   else lines.push(`  ${verdict.action.toUpperCase()}: ${describe(verdict.hit, now).what}. ${describe(verdict.hit, now).lifts}.`);

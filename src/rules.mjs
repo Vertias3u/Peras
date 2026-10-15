@@ -1,3 +1,4 @@
+import { allowanceHits } from "./allowance-rules.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { WINDOWS } from "./window.mjs";
@@ -126,7 +127,7 @@ const resumedNow = (resumed, key, now) => resumed.some((r) => r && r.key === key
  * @param {{ window: object, rules: object[], now?: number, cwd?: string, resumed?: {key: string, until?: number}[],
  *           forecast?: object, latched?: string[], prompt?: object, manualPause?: {until: number|null} }} ctx
  */
-export function evaluate({ window, rules, now = Date.now(), cwd = null, resumed = [], forecast = {}, latched = [], prompt = null, manualPause = null }) {
+export function evaluate({ window, rules, now = Date.now(), cwd = null, resumed = [], forecast = {}, latched = [], prompt = null, manualPause = null, allowances = [] }) {
   const hits = [];
   const applied = effectiveRules(normalizeRules(rules), cwd ? realDir(cwd) : null);
   for (const rule of applied) {
@@ -160,6 +161,7 @@ export function evaluate({ window, rules, now = Date.now(), cwd = null, resumed 
     const ends = Math.floor((manualPause.until ?? since + 7 * 24 * 3600_000) / 1000);
     hits.push({ kind: "manual", action: "pause", until: manualPause.until ?? null, key: `manual:${since}@${ends}` });
   }
+  hits.push(...allowanceHits(allowances, cwd ? realDir(cwd) : null, resumed, now));
   hits.sort((a, b) => RANK[b.action] - RANK[a.action] || (b.at ?? 0) - (a.at ?? 0));
   return { action: hits[0]?.action ?? "none", hit: hits[0] ?? null, hits, rules: applied };
 }

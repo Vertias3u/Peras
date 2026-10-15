@@ -1,3 +1,10 @@
+import { setPacing, readPlanning, dayNames, profileSummary, saveProfile, useProfile, deleteProfile, grantExtra, activeExtras, revokeExtra } from "./planning.mjs";
+import { sessionOverview, sessionsText } from "./sessions.mjs";
+import { parseBudget, setBudget, allowanceMeters, budgetText } from "./allowances.mjs";
+import { reviewFor, reviewText, comparisonText } from "./review.mjs";
+import { alternativeHint } from "./alternative.mjs";
+import { testNotification } from "./notify.mjs";
+import { localDay } from "./calendar.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +43,17 @@ const HELP = `Peras 🍐 ${VERSION}: stop Claude Code or Codex before it burns t
   peras codex why             explain Codex's active rules
   peras codex remove          remove Peras's Codex hooks
   peras status                both agents: usage, resets, pauses, and reading ages
+  peras budget daily 10 pause  cap today’s observed rise in weekly usage
+  peras budget --here weekly 5 pause  estimated allowance for this project
+  peras pace 20               keep 20% reserved across remaining workdays
+  peras profile save NAME     save current rules, allowances and pacing
+  peras profile use NAME      switch profiles without resetting usage
+  peras extra daily 3 1h      add 3 points to today’s allowance for an hour
+  peras extra --here 3 today  add 3 project points until local midnight
+  peras sessions              recently observed sessions and their limits
+  peras compare               compare two completed tracked weeks
+  peras settings              open the local visual rule editor
+  peras review                weekly usage charts and retained interventions
   peras history               past weeks: peak, lines crossed, when it hit the wall
   peras pause [1h|18:00]      pause Claude Code now, until a time or until you resume
   peras resume [1h]           lift a pause: for the rest of the window, or for 1h
@@ -48,7 +66,8 @@ const HELP = `Peras 🍐 ${VERSION}: stop Claude Code or Codex before it burns t
   peras set reset             back to the defaults (--here: drop this folder's lines)
 
   peras notify                which desktop notifications are on
-  peras notify warnings off   switch one: warnings|pauses|resets on|off
+  peras notify warnings off   switch one: warnings|pauses|resets|unused on|off
+  peras notify test           send a sample pear notification
   peras events                recent warnings, pauses, resumes, and resets
   peras test                  test pause and resume on a throwaway copy of the hooks
   peras doctor                check that everything is wired up, hooks included
@@ -271,7 +290,8 @@ function status(env, out, now, { isTTY = process.stdout.isTTY, verdict, snap, ro
   } else if (action === "warn") {
     out(paint(color, "yellow", `${MARK.warn} ${hits.map((h) => describe(h, now).short).join(", ")}.`));
   }
-  const liveKeys = Object.values(live).map((w) => `@${w.resetsAt}`);
+  for (const meter of ctx.allowances || []) out(`  ${budgetText(meter)}`);
+  const liveKeys = [...Object.values(live), ...(ctx.allowances || [])].map((w) => `@${w.resetsAt}`);
   const lifted = state.resumed.filter((r) => liveKeys.some((k) => r.key.includes(k)));
   if (action !== "pause" && action !== "ask" && lifted.length) {
     const until = Math.min(...lifted.map((r) => r.until ?? Number(r.key.split("@")[1].split("#")[0]) * 1000));
@@ -359,6 +379,72 @@ function set(env, out, args) {
   return 0;
 }
 
+function pacingCommand(env, out, args) {
+  if (args[0] === "off" && args.length === 1) setPacing(env, null);
+  else if (args.length) {
+    const names = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+    const action = args.find((word) => ["warn", "ask", "pause"].includes(word)) || "pause";
+    const rest = args.slice(1).filter((word) => !["warn", "ask", "pause"].includes(word));
+    if (rest.length > 1 || args.length > 3) throw new Error("Use peras pace 20 mon,tue,wed,thu,fri pause, or peras pace off");
+    const days = rest.length ? rest[0].split(",").map((day) => names[day.toLowerCase()]) : [1, 2, 3, 4, 5];
+    setPacing(env, { reserve: Number(args[0]), days, action });
+  }
+  const plan = readPlanning(env).pacing;
+  if (!plan) {
+    out("Workday pacing is off. Use peras pace 20 to reserve 20% across your remaining weekdays.");
+    return 0;
+  }
+  out(`Workday pacing: reserve ${plan.reserve}% · working days ${dayNames(plan.days)} · ${plan.action}. Today's share is fixed at the first fresh reading; other limits still apply.`);
+  if (plan.days.length < 7) out(`On other days agents get no share, so every tool call meets the ${plan.action}. Add those days to the plan if you work them.`);
+  return 0;
+}
+
+function profileCommand(env, out, now, args) {
+  const [op, ...words] = args;
+  const name = words.join(" ");
+  if (op === "save") out(`Saved profile ${saveProfile(env, name)}.`);
+  else if (op === "use") out(`Activated profile ${useProfile(env, name, now)}. Usage counters and pauses were preserved.`);
+  else if (op === "delete") {
+    deleteProfile(env, name);
+    out(`Deleted profile ${name}.`);
+  } else if (op && op !== "list") throw new Error("Use peras profile save|use|delete NAME, or peras profile list");
+  const summary = profileSummary(env);
+  if (!summary.names.length) out("No profiles saved yet. Configure your rules, then peras profile save Normal day.");
+  else out(summary.names.map((n) => `${n === summary.active ? "●" : "○"} ${n}${n === summary.active && summary.modified ? " (modified)" : ""}`).join("\n"));
+  return 0;
+}
+
+function extraCommand(env, out, now, args) {
+  const weekly = context(env, { now }).window.seven_day;
+  if (args[0] === "revoke") {
+    if (args.length !== 2) throw new Error("Use peras extra revoke ID");
+    revokeExtra(env, args[1], now);
+  } else if (args.length) {
+    const here = args.includes("--here");
+    if ((args.includes("weekly") && !here) || (args.includes("daily") && here)) throw new Error("Use daily for the account, or --here for a project allowance.");
+    const words = args.filter((w) => !["--here", "daily", "weekly"].includes(w));
+    if (words.length < 1 || words.length > 2) throw new Error("Use peras extra daily 3 1h or peras extra --here 3 today");
+    const midnight = localDay(now).end;
+    const until = !words[1] || words[1] === "today" ? midnight : Math.min(midnight, now + parseWhen(words[1], now));
+    grantExtra(env, { period: here ? "weekly" : "daily", ...(here ? { project: realDir(process.cwd()) } : {}), points: Number(words[0]), until }, now, weekly);
+  }
+  const extras = activeExtras(env, now, weekly);
+  out(extras.length ? extras.map((g) => `${g.id} · +${g.points} points · ${g.project || "today"} · until ${eventTime(g.until, now)}`).join("\n") : "No active extra allowances.");
+  out("Extras change only the selected allowance. Other warning, pause and provider limits still apply.");
+  return 0;
+}
+
+function budget(env, out, now, words) {
+  if (words.length) {
+    const parsed = parseBudget(words);
+    setBudget(env, parsed.rule, now, parsed.remove);
+  }
+  const meters = allowanceMeters(env, now, context(env, { now }).window);
+  out(meters.length ? meters.map(budgetText).join("\n") : "No allowances set. Try peras budget daily 10 pause or peras budget --here weekly 5 pause.");
+  out("Allowances count observed percentage-point increases, not token costs. Daily resets at local midnight. Project usage is a conservative estimate while that folder has an active session; parallel account use can count too.");
+  return 0;
+}
+
 function history(env, out, now, { isTTY = process.stdout.isTTY } = {}) {
   const color = colorOn(env, Boolean(isTTY));
   const weeks = weeklyHistory(readUsage(env), readRules(env));
@@ -405,6 +491,10 @@ async function combinedStatus(env, out, now, reader) {
   // Most people run only Claude Code: an unused Codex gets one line, not a panel.
   if (!readInstall(codex.env) && !Object.keys(codex.ctx.window).length) out("Codex: not set up. `peras codex setup` guards it too.");
   else panel(env, out, now, codex);
+  for (const s of [claude, codex]) {
+    const hint = alternativeHint(s, [claude, codex], now);
+    if (hint) out(`Another agent: ${hint}`);
+  }
   return 0;
 }
 
@@ -422,16 +512,22 @@ const NOTIFICATIONS = {
   warnings: "when usage crosses a warning line",
   pauses: "when Peras pauses an agent or asks for your OK",
   resets: "when a usage window resets (only while the menu bar runs)",
+  unused: "use it or lose it: 20%+ left within 48h of weekly reset (only while the menu bar runs)",
 };
 
-function notifySettings(env, out, args) {
+async function notifySettings(env, out, args, sendNotification) {
+  if (args.length === 1 && args[0] === "test") {
+    await sendNotification("Use it or lose it 🍐", "Test notification: Claude has 30% of its weekly allowance left. Resets in 2 days.", { env });
+    out("Sample notification scheduled. If no banner appears, check Peras in your desktop notification settings.");
+    return 0;
+  }
   if (!args.length) {
     const on = preferences(env);
     for (const [name, what] of Object.entries(NOTIFICATIONS)) out(`  ${name.padEnd(9)} ${on[name] ? "on " : "off"}  ${what}`);
-    out("Switch one: peras notify warnings|pauses|resets on|off");
+    out("Switch one: peras notify warnings|pauses|resets|unused on|off");
     return 0;
   }
-  if (args.length !== 2 || !(args[0] in NOTIFICATIONS)) throw new Error("Use peras notify warnings|pauses|resets on|off");
+  if (args.length !== 2 || !(args[0] in NOTIFICATIONS)) throw new Error("Use peras notify warnings|pauses|resets|unused on|off");
   setPreference(env, args[0], args[1]);
   out(`Notifications for ${args[0]}: ${args[1]}.`);
   return 0;
@@ -470,7 +566,7 @@ async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.qu
   }
   if (sub === "preference") {
     if (args.length === 1) { out(JSON.stringify(preferences(env), null, 2)); return 0; }
-    if (args.length !== 3) throw new Error("Use peras menubar preference mascots|weekly|warnings|pauses|resets on|off");
+    if (args.length !== 3) throw new Error("Use peras menubar preference mascots|weekly|warnings|pauses|resets|unused on|off");
     setPreference(env, args[1], args[2]);
     out(`${args[1]}: ${args[2]}`);
     return 0;
@@ -602,22 +698,24 @@ function menubarSummary(env) {
 // after `npm i -g peras-cli@latest` they can be older than this CLI, and an older
 // hook reads newer lines wrongly: 0.1.1 took `prompt 3 pause` for "pause at 3% of
 // the week" and ignored `peras pause` (checked against the published 0.1.1).
-const WRITES = new Set(["set", "pause", "resume", "menubar"]);
+const WRITES = new Set(["set", "budget", "pace", "profile", "extra", "settings", "pause", "resume", "menubar"]);
 
 /** When the hooks run an older Peras than this CLI, bring them up to date first. */
 function refreshStaleHooks(env, out) {
-  const before = readInstall(env)?.version;
-  if (!before || before === VERSION) return;
+  const claude = readInstall(env)?.version, codex = readInstall(codexEnv(env))?.version;
+  const staleClaude = claude && claude !== VERSION, staleCodex = codex && codex !== VERSION;
+  if (!staleClaude && !staleCodex) return;
   const bin = copyRuntime(env);
   const command = `"${nodePath(env)}" "${bin}"`;
-  install({ env, command, resumeHint: resumeHintFor({ onPath: onPath("peras", env), root: ROOT, command }), version: VERSION });
+  if (staleClaude) install({ env, command, resumeHint: resumeHintFor({ onPath: onPath("peras", env), root: ROOT, command }), version: VERSION });
+  if (staleCodex) installCodex(env, command);
   if (menubar.installed(env)) menubar.install(env, { command, folder: path.dirname(menubar.installed(env)) });
-  out(`(Updated the hooks from Peras ${before} to ${VERSION} first. Restart open sessions to pick them up.)`);
+  out(`(Updated the hooks from Peras ${staleClaude ? claude : codex} to ${VERSION} first. Restart open sessions to pick them up.)`);
 }
 
-export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar, openMenubar, isTTY = process.stdout.isTTY } = {}) {
+export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar, openMenubar, openSettingsURL, sendNotification = testNotification, isTTY = process.stdout.isTTY } = {}) {
   const [command, ...rest] = args;
-  if (WRITES.has(command) && !(command === "menubar" && (!rest[0] || ["show", "quit", "open"].includes(rest[0])))) {
+  if ((WRITES.has(command) || (command === "codex" && ["set", "budget", "pace", "profile", "extra", "pause", "resume"].includes(rest[0]))) && !(command === "menubar" && (!rest[0] || ["show", "quit", "open"].includes(rest[0])))) {
     try {
       refreshStaleHooks(env, out);
     } catch (error) {
@@ -675,6 +773,13 @@ export async function main(args, { env = process.env, out = console.log, now = D
         if (sub === "resume") return doResume(scoped, out, now, words);
         if (sub === "set") return set(scoped, out, words);
         if (sub === "history") return history(scoped, out, now);
+        if (sub === "pace") return pacingCommand(scoped,out,words);
+        if (sub === "profile") return profileCommand(scoped,out,now,words);
+        if (sub === "extra") return extraCommand(scoped,out,now,words);
+        if (sub === "sessions") { out(sessionsText(sessionOverview([await snapshot(env,now,{provider:"codex"})],now),now)); return 0; }
+        if (sub === "compare") { out(comparisonText(reviewFor(scoped,now))); return 0; }
+        if (sub === "budget") return budget(scoped, out, now, words);
+        if (sub === "review") { out(reviewText(reviewFor(scoped, now))); return 0; }
         throw new Error(`Unknown Codex command "${sub}".`);
       }
       case "setup":
@@ -695,6 +800,23 @@ export async function main(args, { env = process.env, out = console.log, now = D
         return doPause(env, out, now, rest);
       case "set":
         return set(env, out, rest);
+      case "pace": return pacingCommand(env,out,rest);
+      case "profile": return profileCommand(env,out,now,rest);
+      case "extra": return extraCommand(env,out,now,rest);
+      case "sessions": { out(sessionsText(sessionOverview(await Promise.all([snapshot(env,now),snapshot(env,now,{provider:"codex"})]),now),now)); return 0; }
+      case "compare": out(comparisonText(reviewFor(env,now))); return 0;
+      case "settings": {
+        if (rest.length) throw new Error("Use peras settings");
+        const { openSettings } = await import("./settings-server.mjs");
+        await openSettings(env, { openURL: openSettingsURL });
+        out("Opened Rules and allowances on this computer. The editor closes after 30 idle minutes.");
+        return 0;
+      }
+      case "budget":
+        return budget(env, out, now, rest);
+      case "review":
+        if (rest.length) throw new Error("Use peras review or peras codex review");
+        out(reviewText(reviewFor(env, now))); return 0;
       case "history":
         return history(env, out, now);
       case "menubar":
@@ -702,7 +824,7 @@ export async function main(args, { env = process.env, out = console.log, now = D
       case "doctor":
         return doctor(env, out, now);
       case "notify":
-        return notifySettings(env, out, rest);
+        return await notifySettings(env, out, rest, sendNotification);
       case "test":
         if (rest.length) throw new Error("Use peras test");
         return await protectionTest(env, out, now, codexReader);

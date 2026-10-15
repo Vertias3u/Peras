@@ -32,10 +32,10 @@ export const sessionDir = (input) => input?.workspace?.project_dir ?? input?.wor
 export function runStatusline({ stdin, env = process.env, now = Date.now() }) {
   const input = safe(() => JSON.parse(stdin.toString("utf8")), null);
   const reading = readingFrom(input, now);
-  safe(() => recordReading(env, reading));
   const session = typeof input?.session_id === "string" ? input.session_id : null;
   const dir = sessionDir(input);
   const cost = input?.cost?.total_cost_usd;
+  safe(() => recordReading(env, reading, { now, session, dir }));
   const usage = safe(() => {
     const tracked = trackReading(readUsage(env), reading, { session, cost, dir, now });
     if (tracked.changed) writeUsage(env, tracked.usage);

@@ -1,6 +1,6 @@
 {
   "name": "peras-cli",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Stop Claude Code or Codex before it burns the rest of your limit.",
   "license": "MIT",
   "type": "module",

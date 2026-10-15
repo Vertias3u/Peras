@@ -126,10 +126,16 @@
     </div>
   </section>
 
+  <section aria-labelledby="allowances">
+    <h2 id="allowances">Plan your allowance.</h2>
+    <div class="prose"><p>Daily allowances count observed percentage-point increases in weekly usage and reset at local midnight. A rise from 30% to 40% is ten points. Use <code>peras budget daily 10 pause</code>; add <code>codex</code> after <code>peras</code> for Codex. Usage before the first daily reading is not reconstructed.</p><p>Project allowances, set with <code>peras budget --here weekly 5 pause</code> from a project folder, conservatively count account-wide increases while that folder has an active session. Parallel account activity can count too. Gaps longer than five minutes can miss usage. Only sessions in the configured folder or its children are paused.</p><p><strong>Settings → Rules and allowances…</strong> opens the private local editor. <strong>Settings → Weekly review…</strong> shows observed usage charts, recording gaps, last-known remaining allowance and retained intervention counts. When an agent pauses, a fresh reading from the other agent may help you choose where to continue.</p></div>
+  </section>
   <section aria-labelledby="prefs">
-    <h2 id="prefs">Preferences.</h2>
+    <h2 id="prefs">Preferences and planning.</h2>
+    <div class="prose"><p>Workday pacing divides spendable weekly allowance above a reserve across remaining working days. Today's share stays fixed as you work. Profiles save rules, allowances and pacing while preserving usage and pauses. Temporary extra points extend only a selected allowance until their expiry, midnight or weekly reset.</p><p>Session overview lists observed hook activity, not running processes. Weekly comparison needs two completed observed weeks and marks missing tracking. Native macOS notification actions open Status, resume an unchanged original pause for one hour, or snooze a qualifying unused-allowance reminder; other limits still apply.</p></div>
     <div class="prose">
       <p>Under <strong>Settings → Menu bar display</strong>, turn the mascots and weekly bars on or off independently. Under <strong>Settings → Notifications</strong>, choose warning, pause/approval and reset alerts. Warning and pause alerts start on; reset alerts start off, need the menu bar running, and use the provider's reported reset time.</p>
+      <p>Use it or lose it reminders start off. Enable them to receive one reminder per agent each week when at least 20% remains and reset is within 48 hours. They need the menu running and a fresh weekly reading. Alerts use the Peras pear icon; macOS notification settings list the sender as Peras.</p>
       <p>Turning notifications off doesn't turn off pausing. A timed pause shows its end time and a countdown, with Resume right below.</p>
     </div>
   </section>

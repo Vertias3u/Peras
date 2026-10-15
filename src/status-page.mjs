@@ -1,3 +1,7 @@
+import { sessionOverview, sessionsHTML } from "./sessions.mjs";
+import { profileSummary, readPlanning } from "./planning.mjs";
+import { reviewFor, reviewHTML, comparisonHTML } from "./review.mjs";
+import { alternativeHint } from "./alternative.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -69,8 +73,11 @@ export function writeStatusPage(env, snapshots, now) {
       return `<div class="meter"><div class="row"><strong>${label} · ${Math.round(used)}% used</strong><span class="mono">resets in ${escape(countdown(window.resetsAt, now))} · ${escape(resetTime(window.resetsAt, now))}</span></div><div class="track" role="meter" aria-label="${name} ${label} usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(used)}"><div style="width:${used}%;background:${fill}"></div></div></div>`;
     }).join("");
     const health = s.health ? `<p class="health"><i style="background:${TONE[healthTone(s.health.label)]}"></i><span><strong>${escape(s.health.label)}</strong> · ${escape(s.health.detail)}</span></p>` : "";
+    const profile = s.env ? profileSummary(s.env) : null;
+    const planning = s.env ? readPlanning(s.env) : {};
+    const hint = alternativeHint(s, snapshots, now);
     const stopped = s.verdict.action === "pause" || s.verdict.action === "ask";
-    return `<section class="card${stopped ? " stopped" : ""}"><div class="head"><h2>${name}</h2><span class="pill" style="color:${TONE[stateTone]}">${stateText}</span></div>${health}${meters}<h3>Readout</h3><pre>${escape(statusText(s, now))}</pre><h3>Active rules &amp; pause reasons</h3><pre>${escape(whyText(s, now))}</pre></section>`;
+    return `<section class="card${stopped ? " stopped" : ""}"><div class="head"><h2>${name}</h2><span class="pill" style="color:${TONE[stateTone]}">${stateText}</span></div>${health}${profile?.active ? `<p>Profile: ${escape(profile.active)}${profile.modified ? " (modified)" : ""}</p>` : ""}${planning.pacing ? `<p>Workday pacing is on · ${planning.pacing.reserve}% reserved. ${s.ctx.allowances?.some(m => m.kind === "pacing") ? "" : "Waiting for a fresh weekly reading."}</p>` : ""}${meters}${hint ? `<p>${escape(hint)}</p>` : ""}<h3>Readout</h3><pre>${escape(statusText(s, now))}</pre><h3>Active rules &amp; pause reasons</h3><pre>${escape(whyText(s, now))}</pre></section>`;
   }).join("");
   const limits = escape(new URL("./limits.html", import.meta.url).href);
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="refresh" content="10"><meta name="color-scheme" content="dark"><title>Status · Peras</title><style>${PAGE_STYLE}
@@ -91,6 +98,7 @@ export function writeStatusPage(env, snapshots, now) {
   h3 { margin: 24px 0 8px; font: 500 12px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
   pre { margin: 0; padding: 14px 16px; background: var(--deep); border: 1px solid #1a201b; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.65 var(--mono); color: #d9ded5; }
   .section { margin-top: 24px; } .section h2 { font-size: 24px; } .section p { color: var(--muted); }
+  .review-week { border-top: 1px solid var(--line); padding-top: 12px; } .review-week svg { display:block; width:100%; max-height:220px; }
   .table-wrap { overflow-x: auto; margin-top: 16px; } table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
   th, td { border-bottom: 1px solid var(--hair); padding: 12px 10px; vertical-align: top; } th { color: var(--muted); } td:last-child { min-width: 240px; overflow-wrap: anywhere; } td.mono { white-space: nowrap; font-size: 12px; }
   </style></head><body><div class="wrap">
@@ -98,6 +106,9 @@ export function writeStatusPage(env, snapshots, now) {
   <h1>Your agents, <em>right now.</em></h1>
   <p class="lede">Updated <span class="mono">${escape(when(now))}</span>. The page reloads every 10 seconds while the menu bar is running.</p>
   <div class="cards">${cards}</div>
+    <section class="card section" id="sessions"><h2>Recently observed sessions</h2>${sessionsHTML(sessionOverview(snapshots, now))}</section>
+    <section class="card section" id="weekly-comparison"><h2>Week against week.</h2>${snapshots.map(s => comparisonHTML(reviewFor(s.env || env, now), s.provider === "codex" ? "Codex" : "Claude")).join("")}</section>
+    <section class="card section" id="weekly-review"><h2>Your weeks, observed.</h2><p>Gaps in tracking are not zero usage. Remaining allowance may have been spent after the last reading. Event counts cover retained history only.</p>${snapshots.map(s => reviewHTML(reviewFor(s.env || env, now), s.provider === "codex" ? "Codex" : "Claude")).join("")}</section>
     <section class="card section" id="protection-test"><h2>Protection test</h2>${testSummary}<p>Choose <strong>Settings → Protection test…</strong> in the pear menu to run again, or use <code>peras menubar test</code>. The test uses temporary state and runs no model calls. It checks that the hook commands allow tools, deny while paused, and allow after resume. A pass refreshes previously verified protection to active for 15 minutes. Each agent's health details above show the verification source and last live tool guard. It does not establish hook trust or activation in every open session.</p></section>
   <section class="card section" id="recent-events"><h2>Recent events</h2>${events.length ? `<div class="table-wrap"><table><thead><tr><th>Time</th><th>Agent</th><th>Event</th><th>Details</th></tr></thead><tbody>${eventRows}</tbody></table></div>` : "<p>No events recorded yet. New warnings, pauses, resumes, and resets will appear here.</p>"}<p>The latest 50 events are shown. History stays on your machine and contains event summaries, not prompts or tool commands.</p></section>
   <footer><span>Pause or resume from the pear menu. A missing reading doesn't mean zero usage.</span><span class="by">${VERTIAS_SVG}Peras by <b>Ver<i>tias</i></b> · local, nothing leaves your machine</span></footer>

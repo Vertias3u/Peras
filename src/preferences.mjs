@@ -1,7 +1,7 @@
 import path from "node:path";
 import { perasHome, readJson, writeJsonAtomic } from "./store.mjs";
 
-const defaults = { mascots: true, weekly: true, warnings: true, pauses: true, resets: false };
+const defaults = { mascots: true, weekly: true, warnings: true, pauses: true, resets: false, unused: false };
 const file = (env) => path.join(perasHome(env), "preferences.json");
 export function preferences(env) {
   let saved;
@@ -9,7 +9,7 @@ export function preferences(env) {
   return Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key, typeof saved?.[key] === "boolean" ? saved[key] : value]));
 }
 export function setPreference(env, name, value) {
-  if (!(name in defaults) || !["on", "off"].includes(value)) throw new Error("Choose mascots|weekly|warnings|pauses|resets and on|off.");
+  if (!(name in defaults) || !["on", "off"].includes(value)) throw new Error("Choose mascots|weekly|warnings|pauses|resets|unused and on|off.");
   const next = { ...preferences(env), [name]: value === "on" };
   writeJsonAtomic(file(env), next);
   return next;
