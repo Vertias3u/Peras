@@ -74,7 +74,7 @@ export function script({ command, env }) {
 # <swiftbar.useTrailingStreamSeparator>true</swiftbar.useTrailingStreamSeparator>
 # Renderer revision: ${rendererRevision()}
 ${exports.join("\n")}${exports.length ? "\n" : ""}if [ $# -eq 0 ]; then
-  if [ "${"$"}{SWIFTBAR:-}" = "1" ]; then exec ${command} menubar stream; else set -- menubar; fi
+  if [ "${"$"}{SWIFTBAR:-}" = "1" ]; then exec ${command} menubar stream; else set -- menubar show; fi
 fi
 ${command} "$@" || { echo "🍐 ?"; echo "---"; echo "Peras could not run: open a terminal and run peras doctor"; }
 `;
@@ -95,6 +95,19 @@ export function install(env, { command, folder }) {
     fs.rmSync(previous, { force: true });
   }
   return file;
+}
+
+/** Whether SwiftBar is up to draw the menu; null where there's no SwiftBar to ask about. */
+export function swiftBarRunning() {
+  if (process.platform !== "darwin") return null;
+  return spawnSync("pgrep", ["-x", "SwiftBar"], { timeout: 5000 }).status === 0;
+}
+
+/** Launch SwiftBar, which draws the menu. Throws when it isn't installed. */
+export function open() {
+  if (process.platform !== "darwin") throw new Error("The menu bar needs macOS and SwiftBar.");
+  const opened = spawnSync("open", ["-a", "SwiftBar"], { timeout: 10_000, encoding: "utf8" });
+  if (opened.status !== 0) throw new Error((opened.stderr || "SwiftBar did not open").trim());
 }
 
 /** Quit SwiftBar, the app that draws the menu. The hooks don't need it, so protection keeps running. */

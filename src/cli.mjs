@@ -53,9 +53,11 @@ const HELP = `Peras 🍐 ${VERSION}: stop Claude Code or Codex before it burns t
   peras test                  test pause and resume on a throwaway copy of the hooks
   peras doctor                check that everything is wired up, hooks included
 
+  peras menubar               whether 🍐 is in the menu bar, and its commands
   peras menubar install       🍐 in the macOS menu bar (needs the free SwiftBar)
   peras menubar display pear|usage    choose pear only, or icons and percentages
   peras menubar quit          quit the menu bar (protection keeps running)
+  peras menubar open          open the menu bar again after quitting
   peras menubar preference mascots|weekly on|off
   peras remove                take out exactly what setup added
   peras connect               what PassControl adds on top
@@ -443,12 +445,23 @@ function eventTime(at, now) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${resetTime(at / 1000, at)}`;
 }
 
-async function doMenubar(env, out, now, args, reader, quitMenubar = menubar.quit) {
+async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.quit, openMenubar = menubar.open, isTTY } = {}) {
   const [sub, folder] = args;
   if (sub === "quit") {
     if (args.length !== 1) throw new Error("Use peras menubar quit");
     try { await quitMenubar(); } catch {}
-    out("Quit the menu bar. Protection keeps running: the hooks don't need it. Open SwiftBar to bring the 🍐 back.");
+    out("Quit the menu bar. Protection keeps running: the hooks don't need it. `peras menubar open` brings the 🍐 back.");
+    return 0;
+  }
+  if (sub === "open") {
+    if (args.length !== 1) throw new Error("Use peras menubar open");
+    if (!menubar.installed(env)) throw new Error("🍐 is not in the menu bar yet: run `peras menubar install` first.");
+    try {
+      await openMenubar();
+    } catch (error) {
+      throw new Error(`Could not open SwiftBar (${error.message}). Install it with \`brew install --cask swiftbar\` or from swiftbar.app.`);
+    }
+    out("Opened SwiftBar: the 🍐 is back in the menu bar.");
     return 0;
   }
   if (sub === "test") {
@@ -498,6 +511,8 @@ async function doMenubar(env, out, now, args, reader, quitMenubar = menubar.quit
     return 0;
   }
   if (sub && sub !== "show") throw new Error(`Did not understand "${sub}". Try: peras menubar install`);
+  // SwiftBar reads the bare command's markup; a person typing it gets this instead.
+  if (!sub && isTTY) { out(menubarSummary(env)); return 0; }
   const snapshots = await providerSnapshots(env, now, reader);
   const { writeStatusPage } = await import("./status-page.mjs");
   writeStatusPage(env, snapshots, now);
@@ -564,6 +579,25 @@ Free beta: ${PASSCONTROL}`);
   return 0;
 }
 
+function menubarSummary(env) {
+  const file = menubar.installed(env);
+  if (!file) return "🍐 is not in the menu bar yet. `peras menubar install` puts it there (needs the free SwiftBar).\n`peras status` shows the same readings here.";
+  const running = menubar.swiftBarRunning();
+  const display = menubar.displayMode(env) === "pear" ? "pear only" : "pear + icons and 5-hour percentages";
+  return [
+    `🍐 is in the menu bar: ${tilde(file, env)}`,
+    running === false ? "SwiftBar isn't running, so the menu is closed. `peras menubar open` brings it back." : `Display: ${display}.`,
+    "",
+    "`peras status` shows the same readings here.",
+    "  peras menubar display pear|usage",
+    "  peras menubar preference mascots|weekly on|off",
+    "  peras menubar quit          close the menu (protection keeps running)",
+    "  peras menubar open          open it again",
+    "  peras menubar remove        take the 🍐 out",
+    "  peras menubar show          the raw text SwiftBar reads",
+  ].join("\n");
+}
+
 // Commands that change what the hooks read. Hooks run the copy in ~/.peras/app, so
 // after `npm i -g peras-cli@latest` they can be older than this CLI, and an older
 // hook reads newer lines wrongly: 0.1.1 took `prompt 3 pause` for "pause at 3% of
@@ -581,9 +615,9 @@ function refreshStaleHooks(env, out) {
   out(`(Updated the hooks from Peras ${before} to ${VERSION} first. Restart open sessions to pick them up.)`);
 }
 
-export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar } = {}) {
+export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar, openMenubar, isTTY = process.stdout.isTTY } = {}) {
   const [command, ...rest] = args;
-  if (WRITES.has(command) && !(command === "menubar" && (!rest[0] || rest[0] === "show" || rest[0] === "quit"))) {
+  if (WRITES.has(command) && !(command === "menubar" && (!rest[0] || ["show", "quit", "open"].includes(rest[0])))) {
     try {
       refreshStaleHooks(env, out);
     } catch (error) {
@@ -664,7 +698,7 @@ export async function main(args, { env = process.env, out = console.log, now = D
       case "history":
         return history(env, out, now);
       case "menubar":
-        return await doMenubar(env, out, now, rest, codexReader, quitMenubar);
+        return await doMenubar(env, out, now, rest, codexReader, { quitMenubar, openMenubar, isTTY });
       case "doctor":
         return doctor(env, out, now);
       case "notify":

@@ -42,7 +42,53 @@ test("peras menubar quit quits SwiftBar and says protection keeps running", asyn
   assert.equal(code, 0);
   assert.equal(quits, 1);
   assert.match(text, /Protection keeps running/);
-  assert.match(text, /open SwiftBar/i);
+  assert.match(text, /peras menubar open/);
   const failed = await run(env, ["menubar", "quit"], async () => { throw new Error("not running"); });
   assert.equal(failed.code, 0, "quitting a menu that isn't running is not an error");
+});
+
+test("typed in a terminal, peras menubar reads like a person wrote it; piped, it stays SwiftBar's input", async () => {
+  const { env } = installed();
+  await run(env, ["setup"]);
+  const say = async (args, isTTY) => {
+    const lines = [];
+    const code = await main(args, { env, out: (l) => lines.push(l), isTTY, codexReader: async () => { throw new Error("no codex"); } });
+    return { code, text: lines.join("\n") };
+  };
+  let { code, text } = await say(["menubar"], true);
+  assert.equal(code, 0);
+  assert.doesNotMatch(text, /image=|bash=|\| /);
+  assert.match(text, /not in the menu bar/);
+  assert.match(text, /peras menubar install/);
+  await run(env, ["menubar", "install"]);
+  ({ text } = await say(["menubar"], true));
+  assert.doesNotMatch(text, /image=|bash=/);
+  assert.match(text, /is in the menu bar/);
+  assert.match(text, /peras status/);
+  assert.match(text, /peras menubar quit/);
+  assert.match((await say(["menubar"], false)).text, /^.*image=.*dropdown=false$/m, "SwiftBar and pipes still get the markup");
+  assert.match((await say(["menubar", "show"], true)).text, /image=/, "show always prints the raw menu");
+});
+
+test("peras menubar open launches SwiftBar, and quit points to it", async () => {
+  const { env } = installed();
+  await run(env, ["setup"]);
+  const say = async (args, openMenubar) => {
+    const lines = [];
+    const code = await main(args, { env, out: (l) => lines.push(l), openMenubar, quitMenubar: async () => {}, codexReader: async () => { throw new Error("no codex"); } });
+    return { code, text: lines.join("\n") };
+  };
+  let opens = 0;
+  const notInstalled = await say(["menubar", "open"], async () => { opens++; });
+  assert.equal(opens, 0, "nothing to open before install");
+  assert.match(notInstalled.text, /peras menubar install/);
+  await run(env, ["menubar", "install"]);
+  const opened = await say(["menubar", "open"], async () => { opens++; });
+  assert.equal(opened.code, 0);
+  assert.equal(opens, 1);
+  assert.match(opened.text, /🍐/);
+  const missing = await say(["menubar", "open"], async () => { throw new Error("Unable to find application named 'SwiftBar'"); });
+  assert.equal(missing.code, 1);
+  assert.match(missing.text, /brew install --cask swiftbar/);
+  assert.match((await say(["menubar", "quit"])).text, /peras menubar open/);
 });

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 (2026-10-15)
+
+- `peras menubar open` launches SwiftBar again after **Quit**; the quit message and `peras menubar` point to it.
+- `peras menubar` typed in a terminal says whether the 🍐 is in the menu bar and lists its commands, instead of printing SwiftBar's raw input. Piped, and as `peras menubar show`, it still prints the raw menu.
+
 ## 0.2.1 (2026-10-15)
 
 - The menu bar has **Quit** at the bottom, and `peras menubar quit` does the same. Protection keeps running without it.
