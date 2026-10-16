@@ -144,6 +144,16 @@ export function writeState(env, state) {
   writeJsonAtomic(stateFile(env), state);
 }
 
+/**
+ * A hook's write. Hooks keep their own memory (sessions, prompts, what was said),
+ * never your pause or resume, so those come from the file as it is now: a
+ * `peras pause` or `resume` that landed while the hook ran is not written over.
+ */
+export function writeHookState(env, state, now = Date.now()) {
+  const current = readState(env, now);
+  writeState(env, { ...state, manualPause: current.manualPause, resumed: current.resumed });
+}
+
 export function readInstall(env) {
   try {
     return readJson(installFile(env));

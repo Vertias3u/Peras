@@ -12,11 +12,13 @@ import { installed, setDisplayMode, displayMode } from "../src/menubar.mjs";
 import { setPreference, preferences } from "../src/preferences.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
+// The registry's "latest" is this checkout's version, so a version bump needs no test edits.
+const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).version;
 async function cli(env, ...args) {
   const code = await main(args, { env, out: () => {} });
   assert.equal(code, 0, args.join(" "));
 }
-function fixture(latest = "0.3.0") {
+function fixture(latest = VERSION) {
   const box = sandbox();
   box.env.CODEX_HOME = path.join(box.root, "codex");
   box.env.PERAS_SWIFTBAR_DIR = path.join(box.root, "swiftbar");
@@ -101,15 +103,15 @@ test("upgrade refreshes both runtimes and the menu while preserving rules, pause
   const oldPlugin = installed(f.env);
   const result = await f.invoke();
   assert.equal(result.updated, true);
-  assert.equal(readInstall(f.env).version, "0.3.0");
-  assert.equal(readInstall(codexEnv(f.env)).version, "0.3.0");
+  assert.equal(readInstall(f.env).version, VERSION);
+  assert.equal(readInstall(codexEnv(f.env)).version, VERSION);
   assert.deepEqual(readRules(f.env), rules);
   assert.deepEqual(readState(codexEnv(f.env), now), state);
   assert.equal(displayMode(f.env), "pear");
   assert.equal(preferences(f.env).mascots, false);
   assert.notEqual(installed(f.env), oldPlugin, "release changes reload the streaming menu");
   assert.equal(fs.existsSync(oldPlugin), false);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(f.env.PERAS_HOME, "app", "package.json"))).version, "0.3.0");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.env.PERAS_HOME, "app", "package.json"))).version, VERSION);
   assert.ok(f.calls.some(call => call.args.includes("--ignore-scripts")));
   assert.ok(f.calls.some(call => call.args.slice(1).join(" ") === "menubar install " + f.env.PERAS_SWIFTBAR_DIR));
 });
@@ -120,7 +122,7 @@ test("Codex-only upgrade leaves Claude uninstalled and updates the shared menu",
   await cli(f.env, "menubar", "install");
   await f.invoke();
   assert.equal(readInstall(f.env), null);
-  assert.equal(readInstall(codexEnv(f.env)).version, "0.3.0");
+  assert.equal(readInstall(codexEnv(f.env)).version, VERSION);
   assert.ok(installed(f.env));
   assert.ok(!f.calls.some(call => call.args.slice(1).join(" ") === "setup"));
 });
@@ -131,7 +133,7 @@ test("an already updated global CLI repairs stale runtimes without reinstalling 
   f.installRelease();
   await f.invoke();
   assert.ok(!f.calls.some(call => call.args[0] === "install"));
-  assert.equal(readInstall(codexEnv(f.env)).version, "0.3.0");
+  assert.equal(readInstall(codexEnv(f.env)).version, VERSION);
 });
 
 test("failed registry checks and failed installations stop before integration refresh", async () => {

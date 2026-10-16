@@ -9,14 +9,17 @@
 
 **Stop Claude Code or Codex before it burns the rest of your limit.**
 
-Peras watches your Claude Pro/Max usage window, tells you where it's headed, and pauses the agent (or asks you first) at the line you set. Spend the last of your week on purpose.
+Peras watches Claude Code and Codex subscription usage, forecasts when your allowance will run out, and pauses guarded work at the lines you choose. On macOS, Clawd and the Codex companion walk back and forth above their usage bars, then stand still when paused. Spend the last of your week on purpose.
 
-> **0.3: early, and tested against real Claude Code.** Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
+> **0.3: early software for Claude Code and Codex.** Free, MIT-licensed, and local, with no Peras account required. Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
 > ⭐ **Star it** if it saves your week.
 
 ```sh
-npx peras-cli setup        # or: npm i -g peras-cli && peras setup   (Node 18+, no dependencies)
+npx peras-cli setup        # Claude Code (Node 18+, no runtime dependencies)
+npx peras-cli codex setup  # Codex; run either setup, or both
 ```
+
+On macOS, add the optional [SwiftBar](https://github.com/swiftbar/SwiftBar) menu with `npx peras-cli menubar install` after setting up a provider. The CLI and hooks work without the menu. See [Codex setup](#codex-desktop-and-cli) for hook trust and activation.
 
 ---
 
@@ -24,7 +27,7 @@ npx peras-cli setup        # or: npm i -g peras-cli && peras setup   (Node 18+, 
 
 You leave Claude Code on a long task. It works through your weekly allowance, and you find out when the wall hits, with days left in the week.
 
-Usage trackers *show* you the number. **Nothing acts on it.**
+Seeing the number still leaves you watching it. Peras checks your rules at supported hooks and pauses guarded work when a line is reached.
 
 ## What it looks like
 
@@ -221,13 +224,13 @@ On **macOS**, native pear notifications include **Open Status**. Pause/approval 
 
 - Claude Code already passes your 5-hour and weekly usage to its **status line**. Peras reads it from there and keeps a small history in `~/.peras`.
 - Before every tool call, a Claude Code **hook** asks Peras: go, ask, or stop.
-- **Local only.** No account, no server, nothing leaves your machine.
+- **Local rules and history.** No Peras account or hosted Peras service. The optional settings editor runs a private localhost server; Codex usage refreshes use its app-server.
 - **It never touches your login.** No token handling and no base-URL change, so Remote Control keeps working.
 - **Already have a status line** (ccstatusline or your own)? Peras chains in front of it and passes everything through unchanged. `peras remove` restores yours exactly.
 
 ## Honest limits
 
-- **Pro/Max only.** Claude Code only reports the usage window for claude.ai subscriptions. API-key users have no window to watch.
+- **Subscription usage only.** Claude usage comes from the Pro/Max status-line reading; Codex usage comes from a supported ChatGPT-plan login. API-key-only sessions have no subscription window to watch.
 - **Interactive sessions first.** `claude -p` runs don't refresh the status line. Peras uses the last reading from any interactive session, which is never higher than the truth, so a pause there is always justified, but it can be late. Per-prompt lines only work in interactive sessions.
 - **A paused `claude -p` run just ends.** It exits without an error, so a script can't tell it was paused. Check `peras status`.
 - **The forecast is a straight line** from the last day's pace (or the week's average), and it waits until there's enough to go on. A quiet afternoon or a burst changes it.
@@ -235,17 +238,17 @@ On **macOS**, native pear notifications include **Open Status**. Pause/approval 
 - **Per-prompt lines are account-wide.** Another chat running at the same time counts toward your prompt's rise, so it errs toward pausing.
 - **Changed your Node install?** Run `peras setup` again. If the hooks can't start node, they say so instead of passing silently.
 - **A guard rail, not a wall.** Hooks run inside Claude Code. Peras protects your own sessions; it is not security against a hostile process.
-- **No phone ping when it asks.** You can approve from your phone, but Claude Code doesn't push a notification for these prompts, so open the app to see it.
+- **Do not rely on a phone ping.** In our testing, Peras's Claude permission prompts could be approved through Remote Control but did not trigger a phone push notification. Peras sends its own desktop alert; phone delivery depends on Claude Code and your notification settings.
 
 ## Level up: PassControl 🛂
 
-**Peras watches one number. [PassControl](https://passcontrol.vertias.eu) runs the whole control tower.** Same maker. Free beta, in the cloud or self-hosted.
+**Want controls beyond usage limits? [PassControl](https://passcontrol.vertias.eu) is the same maker's agent gateway and control panel.** Cloud is a free beta with open sign-up, and self-hosting is available. PassControl is source-available (BSL 1.1), early, and not yet independently audited. Peras works independently and does not connect to PassControl automatically.
 
-**🛑 Stop anything, from anywhere**
-- Kill an agent mid-task from your phone's browser. Works on a Pro/Max login too.
+**🛑 Manage stops across agents and sessions**
+- Stop subsequent governed requests from the dashboard. Claude Code subscription sessions use hooks; a stop does not cancel an upstream request already in flight.
 - Stop one session and leave the rest running.
 
-**✋ Nothing risky without your yes**
+**✋ Ask before selected actions**
 - Tool rules for Claude Code: block a command outright, or make it ask you first.
 - Approve or Deny with one Telegram tap or on the dashboard. No answer, no run.
 
@@ -253,17 +256,17 @@ On **macOS**, native pear notifications include **Open Status**. Pause/approval 
 - API keys stay in a vault. The gateway adds them on the way out, and scrubs them if a provider echoes one back.
 - The same goes for GitHub, Notion, Discord and Telegram bot tokens. GitHub writes go through one exact rule at a time.
 
-**💸 Spend that can't run away**
-- Daily or monthly caps per agent, in dollars or tokens, enforced outside the agent. New agents start at $20 a day.
+**💸 API budgets per agent**
+- Token and estimated-cost admission limits for gateway requests. Reservations and settlement track spend; a cap is not a guaranteed upper bound on provider billing.
 - Its own cap for every sub-agent, per session. A ping in Slack, Discord or Telegram when a session passes your number.
 
 **👀 See it live**
 - `passcontrol watch`: every call through your sidecar, its cost, and why anything was refused, in real time.
 - Your agent sees its own budget in its status line.
 
-**🧾 Proof, not promises**
-- A signed receipt for every API call, naming the session and sub-agent it came from. Anyone can verify it in a browser.
-- Seal a coding session and prove nothing was left out.
+**🧾 Inspectable call evidence**
+- Signed receipts record gateway decisions and reported usage, with declared session and sub-agent attribution when available. Receipt logging and signing are best-effort.
+- Session seals commit to a recorded set of receipts; they do not prove that every call was captured or independently verify provider billing.
 
 **🔌 One command to plug in** Claude Code, Codex or OpenRouter, plus local models on Ollama when self-hosted. Failover to a backup provider is built in.
 

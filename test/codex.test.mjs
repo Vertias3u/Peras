@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sandbox } from "./helpers.mjs";
 import { codexEnv, hooksPath, installCodex, readingFromRateLimits, removeCodex, runCodexHook } from "../src/codex.mjs";
-import { pauseNow, resume, readRules, writeRules } from "../src/store.mjs";
+import { pauseNow, resume, readRules, readState, writeRules } from "../src/store.mjs";
 
 const now = Date.UTC(2026, 9, 14, 12);
 const limits = (pct) => ({ rateLimits: { limitId: "codex", primary: { usedPercent: 20, windowDurationMins: 300, resetsAt: (now + 3600_000) / 1000 }, secondary: { usedPercent: pct, windowDurationMins: 10080, resetsAt: (now + 72 * 3600_000) / 1000 } } });
@@ -99,4 +99,20 @@ test("codex setup replaces a Claude-Code Peras hook wired into Codex by hand, an
   assert.equal(readInstall(codexEnv(env)).version, version);
   removeCodex(env);
   assert.deepEqual(JSON.parse(fs.readFileSync(hooksPath(env), "utf8")), { hooks: { PreToolUse: [{ matcher: "*", hooks: [other] }] } });
+});
+
+test("Codex hook: a pause or resume typed while the hook runs survives its write", async () => {
+  const { env, root } = sandbox();
+  env.CODEX_HOME = path.join(root, "codex");
+  const scoped = codexEnv(env);
+  const input = { hook_event_name: "PreToolUse", session_id: "s1", cwd: root, tool_name: "Bash" };
+  await runCodexHook({ input, env, now, reader: async () => limits(93), notify: () => pauseNow(scoped, { now }) });
+  assert.equal(readState(scoped, now).manualPause?.since, now);
+
+  const other = sandbox();
+  other.env.CODEX_HOME = path.join(other.root, "codex");
+  const otherScoped = codexEnv(other.env);
+  pauseNow(otherScoped, { now: now - 60_000 });
+  await runCodexHook({ input: { ...input, cwd: other.root }, env: other.env, now, reader: async () => limits(20), notify: () => resume(otherScoped, { now }) });
+  assert.equal(readState(otherScoped, now).manualPause, null);
 });

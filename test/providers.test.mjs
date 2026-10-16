@@ -152,3 +152,72 @@ test("Codex doctor reports runtime and RPC failures and does not claim hook trus
   assert.match(result.text, /Open \/hooks to confirm/);
   assert.equal(freshness({}, NOW).text, "No reading yet");
 });
+
+// The menu asks for a snapshot every second. Codex reads cost an app-server start
+// each, so the menu path paces them by what the last reading showed.
+const counting = (fn) => { const r = async (...a) => { r.calls++; return fn(...a); }; r.calls = 0; return r; };
+const codexOnly = (five) => async () => ({ rateLimits: { ...(five ? { primary: five } : {}), secondary: { usedPercent: 30, windowDurationMins: 10080, resetsAt: inHours(72) } } });
+const menuTick = (env, now, reader) => snapshot(env, now, { provider: "codex", refresh: true, adaptive: true, reader });
+
+test("a failing Codex read backs off on the menu path instead of retrying every second", async () => {
+  const { env } = sandbox();
+  const failing = counting(offline);
+  const errors = [];
+  for (let s = 0; s < 60; s++) errors.push((await menuTick(env, NOW + s * 1000, failing)).error);
+  assert.ok(failing.calls <= 6, `${failing.calls} reads in a minute`);
+  assert.ok(errors.every((e) => e === "offline"), "a skipped read still reports the last failure");
+  const forced = counting(reader);
+  await snapshot(env, NOW + 60_500, { provider: "codex", refresh: true, force: true, reader: forced });
+  assert.equal(forced.calls, 1, "force skips the backoff");
+});
+
+test("one success ends the backoff", async () => {
+  const { env } = sandbox();
+  for (let s = 0; s < 3; s++) await menuTick(env, NOW + s * 1000, offline);
+  await refreshCodex(env, NOW + 3000, { reader });
+  const next = counting(reader);
+  const s = await menuTick(env, NOW + 64_000, next);
+  assert.equal(next.calls, 1);
+  assert.equal(s.error, null);
+});
+
+test("right after the 5-hour window resets, the menu looks for the new one every second", async () => {
+  const { env } = sandbox();
+  const resetAt = NOW / 1000 - 5;
+  recordReading(codexEnv(env), { five_hour: { usedPct: 60, resetsAt: resetAt, seenAt: NOW - 3600_000 } });
+  await refreshCodex(env, NOW - 2000, { reader: codexOnly(null) });
+  const soon = counting(codexOnly({ usedPercent: 1, windowDurationMins: 300, resetsAt: NOW / 1000 + 5 * 3600 }));
+  await menuTick(env, NOW, soon);
+  assert.equal(soon.calls, 1, "a 2-second-old reading is too old just after a reset");
+  assert.equal(readWindow(codexEnv(env)).five_hour.usedPct, 1, "the new window is picked up");
+});
+
+test("hours after a reset with no new window, the menu reads once a minute", async () => {
+  const { env } = sandbox();
+  recordReading(codexEnv(env), { five_hour: { usedPct: 60, resetsAt: NOW / 1000 - 3 * 3600, seenAt: NOW - 8 * 3600_000 } });
+  await refreshCodex(env, NOW - 30_000, { reader: codexOnly(null) });
+  const idle = counting(codexOnly(null));
+  await menuTick(env, NOW, idle);
+  assert.equal(idle.calls, 0);
+  await menuTick(env, NOW + 31_000, idle);
+  assert.equal(idle.calls, 1);
+});
+
+test("with no 5-hour window ever seen, the menu reads once a minute", async () => {
+  const { env } = sandbox();
+  await refreshCodex(env, NOW - 30_000, { reader: codexOnly(null) });
+  const idle = counting(codexOnly(null));
+  await menuTick(env, NOW, idle);
+  assert.equal(idle.calls, 0);
+});
+
+test("a live window is read once a minute, and again as soon as it resets", async () => {
+  const { env } = sandbox();
+  const resetMs = NOW + 20_000;
+  await refreshCodex(env, NOW - 10_000, { reader: codexOnly({ usedPercent: 40, windowDurationMins: 300, resetsAt: resetMs / 1000 }) });
+  const r = counting(codexOnly(null));
+  await menuTick(env, NOW, r);
+  assert.equal(r.calls, 0, "a 10-second-old reading of a live window is fine");
+  await menuTick(env, resetMs + 500, r);
+  assert.equal(r.calls, 1, "the reset itself starts a search");
+});

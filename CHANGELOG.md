@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 (2026-10-17)
+
+- A `peras pause` or `peras resume` typed while a Claude Code or Codex hook was running could be undone: the hook wrote back the state it had read a moment earlier. Hooks now keep your pause and resume as they are on disk when they save. The window narrows to the moment of the write, not the whole hook run.
+- The menu no longer starts `codex app-server` every second while Codex reads fail (offline, logged out, not installed). It retries after 2, 5, 15, 30, then every 60 seconds, still shows the last error, and one success ends the wait. Hooks keep trying on every call.
+- Right after Codex's 5-hour window resets, the menu looks for the new one every second for 15 seconds, then every 5 and 15 seconds, settling back to once a minute after 5 minutes. A window started from ChatGPT shows up within about a second instead of up to a minute.
+
 ## 0.3.0 (2026-10-15)
 
 - Workday pacing splits spendable weekly allowance above a chosen reserve across remaining working days. Today's share stays fixed while working, and switching back to a profile with the same plan keeps it; changing the reserve or working days recalculates it from current usage. On non-working days agents get no share, so the plan's warn, ask or pause applies all day. `peras pace 20` starts a Monday–Friday plan.

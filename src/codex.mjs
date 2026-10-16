@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { readJson, writeJsonAtomic, perasHome, dirKey, installFile, context, readState, writeState, readInstall, writeInstall, readRules, resumableKeys } from "./store.mjs";
+import { readJson, writeJsonAtomic, perasHome, dirKey, installFile, context, readState, readWindow, writeHookState, readInstall, writeInstall, readRules, resumableKeys } from "./store.mjs";
 import { evaluate, realDir } from "./rules.mjs";
 import { describe } from "./hook.mjs";
 import { windowText } from "./window.mjs";
@@ -85,11 +85,39 @@ export function readingFromRateLimits(result, now = Date.now()) {
   return reading;
 }
 
-export async function refreshCodex(env = process.env, now = Date.now(), { force = false, maxAge = CACHE_MS, reader = readRateLimits } = {}) {
+// Failed reads are remembered apart from the cache, whose `at` hooks trust as fresh.
+export const refreshStatePath = (env) => path.join(perasHome(env), "codex", `${dirKey(codexEnv(env))}-refresh.json`);
+const BACKOFF_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
+
+/**
+ * How old a reading the menu accepts. A live 5-hour window changes slowly: once a
+ * minute. Just after it resets the next one starts with your next message, maybe
+ * from ChatGPT, so look every second, then less and less often. Timed from the
+ * stored reset itself, so it settles at once a minute however long the menu runs.
+ */
+export function adaptiveMaxAge(stored, now) {
+  const reset = stored?.five_hour?.resetsAt;
+  if (typeof reset !== "number" || reset * 1000 > now) return CACHE_MS;
+  const since = now - reset * 1000;
+  return since < 15_000 ? 1_000 : since < 60_000 ? 5_000 : since < 300_000 ? 15_000 : CACHE_MS;
+}
+
+export async function refreshCodex(env = process.env, now = Date.now(), { force = false, maxAge = CACHE_MS, reader = readRateLimits, adaptive = false } = {}) {
   const scoped = codexEnv(env);
-  let cached;
+  let cached, failed;
   try { cached = readJson(cachePath(env)); } catch { cached = null; }
+  try { failed = readJson(refreshStatePath(env)); } catch { failed = null; }
+  if (adaptive && !force) {
+    let stored = null;
+    try { stored = readWindow(scoped); } catch { /* no window to pace by */ }
+    maxAge = adaptiveMaxAge(stored, now);
+  }
   if (!force && cached?.at && now - cached.at < maxAge) return cached.reading ?? {};
+  // The menu waits out a failing Codex (offline, logged out, missing) instead of
+  // starting an app-server every second. Hooks still try: they need the answer.
+  if (adaptive && !force && failed?.failedAt && now - failed.failedAt < BACKOFF_MS[Math.min(failed.failures, BACKOFF_MS.length) - 1]) {
+    throw new Error(failed.lastError || "Codex rate-limit read failed");
+  }
   try {
     const result = await reader({ env, executable: readInstall(scoped)?.codexExecutable ?? codexExecutable(env) });
     const reading = readingFromRateLimits(result, now);
@@ -100,9 +128,13 @@ export async function refreshCodex(env = process.env, now = Date.now(), { force 
       if (tracked.changed) writeUsage(scoped, tracked.usage);
     }
     writeJsonAtomic(cachePath(env), { at: now, reading });
+    if (failed) fs.rmSync(refreshStatePath(env), { force: true });
     return reading;
   } catch (error) {
     // Keep the last window on disk, but let callers report a failed refresh.
+    try {
+      writeJsonAtomic(refreshStatePath(env), { failedAt: now, failures: Math.min((failed?.failures ?? 0) + 1, BACKOFF_MS.length), lastError: String(error?.message ?? error).slice(0, 300) });
+    } catch { /* the failure is still reported */ }
     throw error;
   }
 }
@@ -183,7 +215,7 @@ export async function runCodexHook({ input, env = process.env, now = Date.now(),
   const { action, hit, hits } = evaluate(ctx);
   recordHookRun(scoped, input?.hook_event_name, now);
   state.latched = hits.filter((h) => h.kind === "pace").map((h) => h.key);
-  writeState(scoped, state);
+  writeHookState(scoped, state, now);
   if (action === "none") return refreshError ? { systemMessage: `Peras could not refresh Codex usage (${refreshError.message}); using the last reading if still valid.` } : null;
   const d = describe(hit, now);
   if (input?.hook_event_name !== "PreToolUse") return { systemMessage: `Peras: ${d.what}. ${d.lifts}.` };
@@ -196,10 +228,10 @@ export async function runCodexHook({ input, env = process.env, now = Date.now(),
     const tag = `warn:${hit.key}`;
     if (state.notified.includes(tag)) return null;
     state.notified.push(tag);
-    writeState(scoped, state);
+    writeHookState(scoped, state, now);
     return { systemMessage: `Peras: ${d.what}.` };
   }
-  if (!state.notified.includes(notification)) { state.notified.push(notification); writeState(scoped, state); }
+  if (!state.notified.includes(notification)) { state.notified.push(notification); writeHookState(scoped, state, now); }
   const reason = `Peras ${action === "ask" ? "requires the user's OK" : "paused Codex"}: ${d.what}. ${d.lifts}. Stop and tell the user why.`;
   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
 }

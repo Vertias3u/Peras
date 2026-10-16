@@ -31,12 +31,12 @@ export function freshness(window, now) {
   return { age, text: `Updated ${ago} ago${age > 5 * 60_000 ? " · older reading" : ""}` };
 }
 
-export async function snapshot(env, now, { provider = "claude", refresh = false, reader, force = false } = {}) {
+export async function snapshot(env, now, { provider = "claude", refresh = false, reader, force = false, adaptive = false } = {}) {
   const scoped = provider === "codex" ? codexEnv(env) : env;
   const label = provider === "codex" ? "Codex" : "Claude Code";
   let error = null;
   if (provider === "codex" && refresh) {
-    try { await refreshCodex(env, now, { reader, force }); } catch (e) { error = e.message; }
+    try { await refreshCodex(env, now, { reader, force, adaptive }); } catch (e) { error = e.message; }
   }
   let stored;
   try { stored = readWindow(scoped); } catch (e) { error = e.message; }

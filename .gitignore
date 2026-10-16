@@ -13,5 +13,6 @@ src/.swiftbarignore
 # Local only: release notes for the maintainer, downloaded mascot originals, and the Claude/Codex guide and log.
 RELEASING.md
 research/
+plans/
 TEAMSHARE.md
 AGENTS.md

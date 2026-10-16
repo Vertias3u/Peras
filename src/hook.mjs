@@ -1,7 +1,7 @@
 import { touchAllowanceSession } from "./allowances.mjs";
 import { WINDOWS, resetTime } from "./window.mjs";
 import { evaluate, realDir } from "./rules.mjs";
-import { context, readInstall, readState, resumableKeys, writeState } from "./store.mjs";
+import { context, readInstall, readState, resumableKeys, writeHookState } from "./store.mjs";
 import { readUsage } from "./usage.mjs";
 import { recordHookRun } from "./hook-health.mjs";
 import { preferences } from "./preferences.mjs";
@@ -116,7 +116,7 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
       changed = true;
     }
     if (action === "none") {
-      if (changed) writeState(env, state);
+      if (changed) writeHookState(env, state, now);
       return null;
     }
 
@@ -171,13 +171,13 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
     if (!out && lines.length) out = { systemMessage: `Peras: ${lines.join(" ")}` };
     if (notificationLines.length) notify("Peras 🍐", notificationLines.join("\n"), { env, provider: "claude", category: action === "pause" || action === "ask" ? "pause" : "status", pauseKeys: resumableKeys(ctx, state) });
 
-    if (changed) writeState(env, state);
+    if (changed) writeHookState(env, state, now);
     return out;
   } catch (error) {
     // D3: fail open, loudly, but at most once a minute.
     if (now - state.failWarnAt < FAIL_WARN_EVERY_MS) return null;
     try {
-      writeState(env, { ...state, failWarnAt: now });
+      writeHookState(env, { ...state, failWarnAt: now }, now);
     } catch {
       // Still say it, even if it cannot be remembered.
     }

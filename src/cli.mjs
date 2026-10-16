@@ -475,7 +475,7 @@ async function providerSnapshots(env, now, reader) {
   const scoped = codexEnv(env);
   let hasReading = false;
   try { hasReading = Boolean(readWindow(scoped)); } catch { /* snapshot reports it */ }
-  const codex = await snapshot(env, now, { provider: "codex", refresh: Boolean(readInstall(scoped) || hasReading), reader });
+  const codex = await snapshot(env, now, { provider: "codex", refresh: Boolean(readInstall(scoped) || hasReading), reader, adaptive: true });
   return [claude, codex];
 }
 

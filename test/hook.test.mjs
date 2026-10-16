@@ -247,3 +247,28 @@ test("upgrading from 0.1: its real config and state load, and nothing already sa
   writeRules(box.env, readRules(box.env).filter((r) => r.kind !== "pace"));
   assert.equal(readRules(box.env).length, 3, "turned off after the upgrade, it stays off");
 });
+
+// A hook writes back the state it read. A `peras pause` or `resume` typed while it
+// runs must survive that write (0.3.1). Notify runs between the read and the write.
+test("a pause typed while a hook runs survives the hook's write", () => {
+  const { box } = setup({ sevenDay: 91 });
+  runHook({
+    input: { hook_event_name: "PreToolUse", session_id: "s-1", tool_name: "Bash", tool_input: { command: "ls" } },
+    env: box.env,
+    now: NOW,
+    notify: () => pauseNow(box.env, { now: NOW }),
+  });
+  assert.equal(readState(box.env, NOW).manualPause?.since, NOW);
+});
+
+test("a resume typed while a hook runs is not undone by the hook's write", () => {
+  const { box } = setup({ fiveHour: 10, sevenDay: 40 });
+  pauseNow(box.env, { now: NOW - 60_000 });
+  runHook({
+    input: { hook_event_name: "PreToolUse", session_id: "s-1", tool_name: "Bash", tool_input: { command: "ls" } },
+    env: box.env,
+    now: NOW,
+    notify: () => resume(box.env, { now: NOW }),
+  });
+  assert.equal(readState(box.env, NOW).manualPause, null);
+});
