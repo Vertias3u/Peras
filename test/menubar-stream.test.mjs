@@ -27,17 +27,29 @@ test("stream observes a pause while running and exits on cancellation", async ()
   const controller = new AbortController();
   let time = NOW, reads = 0;
   const menus = [];
-  await streamMenubar({ env, signal: controller.signal, intervalMs: 1, clock: () => time,
-    getSnapshots: async () => { reads++; return [await snapshot(env, time)]; },
+  // Time passes per tick, not per write: a paused menu is not sent again.
+  await streamMenubar({ env, signal: controller.signal, intervalMs: 1, clock: () => (time += 250),
+    getSnapshots: async () => { if (++reads === 6) controller.abort(); return [await snapshot(env, time)]; },
     write: (text) => {
       menus.push(text);
       if (menus.length === 1) pauseNow(env, { now: time });
-      time += 1000;
-      if (menus.length === 4) controller.abort();
       return true;
     } });
   assert.ok(reads > 1);
   assert.ok(menus.some((m) => m.includes("Resume 1h") && m.includes("· paused | image=")));
   const paused = menus.filter((m) => m.includes("Resume 1h")).map((m) => m.split("\n").find((l) => l.startsWith("5h"))?.split(" tooltip=")[0]);
   assert.deepEqual(paused.at(-1), paused[0]);
+});
+
+test("an unchanged menu is not sent again; a walking mascot is sent every frame", async () => {
+  const { env } = sandbox();
+  recordReading(env, { five_hour: { usedPct: 37, resetsAt: inHours(3), seenAt: NOW } });
+  const run = async () => {
+    let time = NOW, writes = 0;
+    await streamMenubar({ env, frames: 8, intervalMs: 0, clock: () => (time += 125), getSnapshots: async () => [await snapshot(env, NOW)], write: () => { writes++; return true; } });
+    return writes;
+  };
+  assert.equal(await run(), 8);
+  pauseNow(env, { now: NOW });
+  assert.equal(await run(), 1, "a paused mascot stands still: one frame, then nothing new");
 });

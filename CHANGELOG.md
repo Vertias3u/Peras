@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 (2026-10-18)
+
+- The menu uses about half the CPU it did. It was re-encoding every image in the menu eight times a second; images that don't change between frames are now encoded once, and a menu that hasn't changed (mascots paused or hidden) isn't sent to SwiftBar again. Walking mascots look exactly as before.
+- When Codex answers in a shape Peras doesn't recognize, Peras now says so ("run peras update") instead of quietly treating it as a fresh reading with nothing in it, which kept an old reading on screen with no error. The menu backs off as for any failed read.
+- Peras only reads Codex's own usage meter: a single-meter answer that names a different meter is no longer taken for Codex's.
+- If Codex says the 5-hour window isn't there (some accounts have run weekly-only), Peras drops it instead of showing, and pausing on, the last reading until its old reset. Only a clear answer does that: when Codex leaves a window's length out, or sends a window Peras can't read, the last reading and any stop on it stay.
+
 ## 0.3.1 (2026-10-17)
 
 - A `peras pause` or `peras resume` typed while a Claude Code or Codex hook was running could be undone: the hook wrote back the state it had read a moment earlier. Hooks now keep your pause and resume as they are on disk when they save. The window narrows to the moment of the write, not the whole hook run.

@@ -4,10 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { readJson, writeJsonAtomic, perasHome, dirKey, installFile, context, readState, readWindow, writeHookState, readInstall, writeInstall, readRules, resumableKeys } from "./store.mjs";
+import { readJson, writeJsonAtomic, perasHome, dirKey, installFile, context, readState, readWindow, windowFile, writeHookState, readInstall, writeInstall, readRules, resumableKeys } from "./store.mjs";
 import { evaluate, realDir } from "./rules.mjs";
 import { describe } from "./hook.mjs";
-import { windowText } from "./window.mjs";
+import { WINDOWS, windowText } from "./window.mjs";
 import { readUsage, trackReading, writeUsage } from "./usage.mjs";
 import { recordHookRun } from "./hook-health.mjs";
 import { preferences } from "./preferences.mjs";
@@ -72,18 +72,49 @@ export function readRateLimits({ env = process.env, executable = "codex", timeou
   });
 }
 
-/** Codex primary and secondary buckets are identified by duration, not position. */
-export function readingFromRateLimits(result, now = Date.now()) {
-  const bucket = result?.rateLimitsByLimitId?.codex ?? result?.rateLimits;
+const WINDOW_MINS = { 300: "five_hour", 10080: "seven_day" };
+
+/**
+ * Reads Codex's answer. Buckets are identified by duration, not position, and
+ * only Codex's own meter counts: the keyed map's `codex` entry, or the single
+ * view when it names no meter or names `codex`. An answer in a shape Peras does
+ * not know throws, so it is never taken for a fresh reading with nothing in it.
+ *
+ * `absent` lists the windows Codex says are not there. Only a certain answer
+ * says that: both slots stated, every duration known. A slot left out, or one
+ * whose duration is missing, could be any window, so then nothing is absent.
+ */
+export function parseRateLimits(result, now = Date.now()) {
+  const map = result?.rateLimitsByLimitId;
+  const single = result?.rateLimits;
+  if (!isObject(result) || (!isObject(map) && !isObject(single))) {
+    throw new Error("Codex reported usage in a shape this Peras does not recognize; run peras update");
+  }
+  const own = (b) => isObject(b) && (b.limitId == null || b.limitId === "codex");
+  const bucket = isObject(map?.codex) ? map.codex : own(single) ? single : null;
+  if (!bucket) throw new Error("Codex reported no Codex usage meter; run peras update");
+  const malformed = () => new Error("Codex reported a usage window this Peras does not recognize; run peras update");
   const reading = {};
-  for (const limit of [bucket?.primary, bucket?.secondary]) {
-    const mins = limit?.windowDurationMins;
-    const name = mins === 300 ? "five_hour" : mins === 10080 ? "seven_day" : null;
-    if (!name || !Number.isFinite(limit.usedPercent) || !Number.isFinite(limit.resetsAt)) continue;
+  const reported = new Set();
+  let certain = "primary" in bucket && "secondary" in bucket;
+  for (const limit of [bucket.primary, bucket.secondary]) {
+    if (limit == null) continue;
+    if (!isObject(limit)) throw malformed();
+    const mins = limit.windowDurationMins;
+    if (mins == null) { certain = false; continue; }
+    if (!Number.isFinite(mins)) throw malformed();
+    const name = WINDOW_MINS[mins];
+    if (!name) continue;
+    if (!Number.isFinite(limit.usedPercent) || (limit.resetsAt != null && !Number.isFinite(limit.resetsAt))) throw malformed();
+    reported.add(name);
+    if (limit.resetsAt == null) continue;
     reading[name] = { usedPct: Math.max(0, Math.min(100, limit.usedPercent)), resetsAt: limit.resetsAt, seenAt: now };
   }
-  return reading;
+  const absent = certain ? Object.keys(WINDOWS).filter((name) => !reported.has(name)) : [];
+  return { reading, absent };
 }
+
+export const readingFromRateLimits = (result, now = Date.now()) => parseRateLimits(result, now).reading;
 
 // Failed reads are remembered apart from the cache, whose `at` hooks trust as fresh.
 export const refreshStatePath = (env) => path.join(perasHome(env), "codex", `${dirKey(codexEnv(env))}-refresh.json`);
@@ -120,7 +151,15 @@ export async function refreshCodex(env = process.env, now = Date.now(), { force 
   }
   try {
     const result = await reader({ env, executable: readInstall(scoped)?.codexExecutable ?? codexExecutable(env) });
-    const reading = readingFromRateLimits(result, now);
+    const { reading, absent } = parseRateLimits(result, now);
+    // A live window Codex says is not there (it has run weekly-only for some
+    // accounts) is gone, not frozen at its last reading until that reading's reset.
+    // An expired one already counts for nothing and stays: the menu times its
+    // search for the next window from that reset.
+    let stored = null;
+    try { stored = readWindow(scoped); } catch { /* replaced below */ }
+    const dropped = absent.filter((name) => stored?.[name]?.resetsAt * 1000 > now);
+    if (dropped.length) writeJsonAtomic(windowFile(scoped), Object.fromEntries(Object.entries(stored).filter(([name]) => !dropped.includes(name))));
     if (Object.keys(reading).length) {
       const { recordReading } = await import("./store.mjs");
       recordReading(scoped, reading);

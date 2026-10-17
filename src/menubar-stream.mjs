@@ -13,7 +13,7 @@ export async function streamMenubar({ env, getSnapshots, write = (text) => proce
   checkResets(env, snapshots, started);
   checkUnusedReminders(env, snapshots, started);
   let lastSnapshot = started, pending = null;
-  let outputCount = 0;
+  let outputCount = 0, lastMenu = null;
   try {
     while (!signal?.aborted && outputCount < frames) {
       const now = clock();
@@ -24,10 +24,15 @@ export async function streamMenubar({ env, getSnapshots, write = (text) => proce
         pending = Promise.resolve().then(getSnapshots).then((next) => { snapshots = next; writeStatusPage(env, snapshots, clock()); checkResets(env, snapshots, clock()); checkUnusedReminders(env, snapshots, clock()); }).catch(() => {}).finally(() => { pending = null; });
       }
       const menu = renderCombined({ snapshots, env, now, animationTime: now - started });
-      const accepted = write(`${menu}\n~~~\n`);
+      // An unchanged menu (mascots paused or hidden, nothing new) is not sent again:
+      // SwiftBar parses every frame it gets, images and all.
+      if (menu !== lastMenu) {
+        lastMenu = menu;
+        const accepted = write(`${menu}\n~~~\n`);
+        // Drop time rather than queue animation frames behind a slow reader.
+        if (accepted === false) await once(process.stdout, "drain", { signal });
+      }
       outputCount++;
-      // Drop time rather than queue animation frames behind a slow reader.
-      if (accepted === false) await once(process.stdout, "drain", { signal });
       if (outputCount < frames) await delay(intervalMs, undefined, { signal });
     }
   } catch (error) {

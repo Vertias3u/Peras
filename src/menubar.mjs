@@ -175,6 +175,21 @@ export function render({ ctx, usage, env, now, verdict, product = "Claude Code",
   return lines.join("\n");
 }
 
+// The menu is rebuilt eight times a second, and most of its images are the same
+// from one frame to the next: encode each of those once. Walking mascots are not
+// cached, since they rarely repeat.
+const encoded = new Map();
+const imageField = (light, dark = light) => `image=${light === dark ? dark.png.toString("base64") : `${light.png.toString("base64")},${dark.png.toString("base64")}`} width=${dark.width} height=${dark.height}`;
+function cached(key, make) {
+  let field = encoded.get(key);
+  if (field === undefined) {
+    field = make();
+    if (encoded.size >= 64) encoded.delete(encoded.keys().next().value);
+    encoded.set(key, field);
+  }
+  return field;
+}
+
 export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
   const prefs = preferences(env);
   const self = env.SWIFTBAR_PLUGIN_PATH || installed(env);
@@ -184,16 +199,16 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
   const readings = snapshots.map((s) => ({ provider: s.provider, pct: s.ctx.window.five_hour?.usedPct, stopped: s.verdict.action === "pause" || s.verdict.action === "ask" }));
   const mode = displayMode(env);
   const titleReadings = mode === "pear" ? [] : readings;
-  const light = titleImage(titleReadings, { dark: false }), dark = titleImage(titleReadings);
+  const titleKey = JSON.stringify(titleReadings.map((r) => [r.provider, Number.isFinite(r.pct) ? Math.round(Math.max(0, Math.min(100, r.pct))) : null, r.stopped]));
+  const title = cached(`title ${titleKey}`, () => imageField(titleImage(titleReadings, { dark: false }), titleImage(titleReadings)));
   const tooltip = snapshots.map((s) => `${s.provider === "codex" ? "Codex" : "Claude"} 5-hour: ${Number.isFinite(s.ctx.window.five_hour?.usedPct) ? `${Math.round(s.ctx.window.five_hour.usedPct)}%` : "no reading"}${s.verdict.action === "none" ? "" : ` · ${s.verdict.action}`}`).join(" · ");
-  const lines = [` | image=${light.png.toString("base64")},${dark.png.toString("base64")} width=${dark.width} height=${dark.height} tooltip=${JSON.stringify(tooltip)} dropdown=false`, "---"];
+  const lines = [` | ${title} tooltip=${JSON.stringify(tooltip)} dropdown=false`, "---"];
   for (const s of snapshots) {
     if (lines.length > 2) lines.push("---");
     const prefix = s.provider === "codex" ? ["codex"] : [];
     const paused = s.verdict.action === "pause" || s.verdict.action === "ask";
     const state = s.verdict.action === "pause" ? " · paused" : s.verdict.action === "ask" ? " · needs OK" : s.error ? " · offline" : "";
-    const nameImage = providerLabelImage(s.provider);
-    lines.push(`${state.trim()} | image=${nameImage.png.toString("base64")} width=${nameImage.width} height=${nameImage.height}`);
+    lines.push(`${state.trim()} | ${cached(`label ${s.provider}`, () => imageField(providerLabelImage(s.provider)))}`);
     const profiles = s.env ? profileSummary(s.env) : { names: [] };
     if (profiles.active) lines.push(`Profile: ${profiles.active}${profiles.modified ? " (modified)" : ""} | size=11`);
     if (profiles.names.length) {
@@ -210,8 +225,10 @@ export function renderCombined({ snapshots, env, now, animationTime = 0 }) {
         const pct = Math.round(w.usedPct);
         const tone = toneFor(name, w.usedPct, s.ctx.rules) === "red" ? "red" : s.provider;
         const mascot = prefs.mascots && name === "five_hour" ? { provider: s.provider, timeMs: animationTime, paused } : null;
-        const light = progressImage(w.usedPct, { tone, dark: false, mascot }), dark = progressImage(w.usedPct, { tone, mascot });
-        lines.push(`${caption.padEnd(4)} ${String(pct).padStart(3)}% · ${countdown(w.resetsAt, now)} (${resetTime(w.resetsAt, now)}) | image=${light.png.toString("base64")},${dark.png.toString("base64")} width=${dark.width} height=${dark.height} font=Menlo size=11 refresh=true`);
+        const bar = () => imageField(progressImage(w.usedPct, { tone, dark: false, mascot }), progressImage(w.usedPct, { tone, mascot }));
+        // A paused mascot stands still, so its bar repeats like one without a mascot.
+        const field = mascot && !paused ? bar() : cached(`bar ${w.usedPct} ${tone} ${mascot ? `${s.provider} paused` : ""}`, bar);
+        lines.push(`${caption.padEnd(4)} ${String(pct).padStart(3)}% · ${countdown(w.resetsAt, now)} (${resetTime(w.resetsAt, now)}) | ${field} font=Menlo size=11 refresh=true`);
       } else lines.push(`${caption.padEnd(4)} – | font=Menlo size=11`);
     }
     for (const meter of s.ctx.allowances || []) lines.push(`${budgetText({ ...meter, ...(meter.project ? { project: path.basename(meter.project) || meter.project } : {}) }).replaceAll("|", "¦").replaceAll("\n", " ")} | size=11`);
