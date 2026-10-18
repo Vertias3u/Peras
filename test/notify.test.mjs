@@ -2,6 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { notify } from "../src/notify.mjs";
 
+const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+/** Building a sender registers it with LaunchServices; the record would outlive the temp folder. */
+async function unregisterAfter(t, app) {
+  const { execFileSync } = await import("node:child_process");
+  t.after(() => { try { execFileSync(LSREGISTER, ["-u", app]); } catch { /* never registered */ } });
+}
+
 test("notifications dispatch pear worker without shell interpolation or blocking", () => {
   const calls = []; let detached = false;
   const launch = (...args) => { calls.push(args); return { on() {}, unref() { detached = true; } }; };
@@ -17,7 +24,7 @@ test("notifications dispatch pear worker without shell interpolation or blocking
   assert.equal(calls.length, 1);
 });
 
-test("macOS notification bundle uses the pear instead of the compiler's asset catalog", { skip: process.platform !== "darwin" || process.env.PERAS_TEST_MAC_NOTIFIER !== "1" }, async () => {
+test("macOS notification bundle uses the pear instead of the compiler's asset catalog", { skip: process.platform !== "darwin" || process.env.PERAS_TEST_MAC_NOTIFIER !== "1" }, async (t) => {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
   const { promisify } = await import("node:util");
@@ -27,6 +34,7 @@ test("macOS notification bundle uses the pear instead of the compiler's asset ca
   const run = promisify(execFile);
   const { root } = sandbox();
   const bundleIdentifier = `eu.vertias.peras.test.p${process.pid}.t${Date.now()}`;
+  await unregisterAfter(t, path.join(root, "sender", "Peras.app"));
   const app = await prepareNotificationApp(path.join(root, "sender"), undefined, { bundleIdentifier });
   const plist = JSON.parse((await run("/usr/bin/plutil", ["-convert", "json", "-o", "-", path.join(app, "Contents", "Info.plist")])).stdout);
   assert.equal(plist.CFBundleIconName, undefined);
@@ -82,12 +90,12 @@ test("explicit notification test reports sender failures through the CLI", async
   assert.match(lines.join("\n"), /Allow Peras/);
 });
 
-test('native notification bridge resumes only a disposable Codex pause after a fresh app launch', {skip:process.platform!=='darwin'||process.env.PERAS_TEST_MAC_NOTIFIER!=='1'},async()=>{
+test('native notification bridge resumes only a disposable Codex pause after a fresh app launch', {skip:process.platform!=='darwin'||process.env.PERAS_TEST_MAC_NOTIFIER!=='1'},async(t)=>{
  const fs=await import('node:fs/promises'),path=await import('node:path');const {promisify}=await import('node:util'),{execFile}=await import('node:child_process');const run=promisify(execFile);
  const {sandbox}=await import('./helpers.mjs'),{prepareNotificationApp}=await import('../src/notification-worker.mjs'),{createActionTicket}=await import('../src/notification-actions.mjs');
  const {pauseNow,readState,context,sessionVerdict}=await import('../src/store.mjs'),{codexEnv}=await import('../src/codex.mjs');
  const {env,root}=sandbox(),scoped=codexEnv(env),now=Date.now();pauseNow(env,{now});pauseNow(scoped,{now});
- const sender=path.join(root,'native-action');const app=await prepareNotificationApp(sender,undefined,{bundleIdentifier:`eu.vertias.peras.test.bridge.p${process.pid}.t${now}`});
+ const sender=path.join(root,'native-action');await unregisterAfter(t,path.join(sender,'Peras.app'));const app=await prepareNotificationApp(sender,undefined,{bundleIdentifier:`eu.vertias.peras.test.bridge.p${process.pid}.t${now}`});
  const pauseKeys=sessionVerdict(context(scoped,{now}),readState(scoped,now)).hits.map(h=>h.key);
  const ticket=createActionTicket(sender,env,{provider:'codex',category:'pause',pauseKeys},now);
  const request=path.join(root,'action.json');await fs.writeFile(request,JSON.stringify({mode:'action',ticket,action:'PERAS_RESUME'}));
