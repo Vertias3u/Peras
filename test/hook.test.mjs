@@ -186,6 +186,17 @@ test("a manual pause pauses, and resume ends it", () => {
   assert.equal(hook("PreToolUse"), null);
 });
 
+test("a timed resume of only your own pause is logged as untimed: it clears the pause for good", () => {
+  const { box, hook } = setup({ sevenDay: 10 });
+  pauseNow(box.env, { now: NOW });
+  const result = resume(box.env, { now: NOW, forMs: 3600_000 });
+  assert.equal(result.lifted.length, 0);
+  assert.equal(hook("PreToolUse"), null);
+  assert.equal(readState(box.env, NOW + 2 * 3600_000).manualPause, null);
+  const events = fs.readFileSync(path.join(box.env.PERAS_HOME, "events.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(events.at(-1).message, "Resumed by you.");
+});
+
 test("a manual pause with a time ends by itself", () => {
   const { box, hook } = setup({ sevenDay: 10 });
   pauseNow(box.env, { now: NOW, until: NOW + 3600_000 });

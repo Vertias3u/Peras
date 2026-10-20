@@ -1,0 +1,6 @@
+{
+  "redirects": [
+    { "source": "/app", "destination": "https://buy.polar.sh/polar_cl_Tpe67yXZWtUwLgv3wQFQWNF44BaEa8BeX6COd2ru1Kj", "permanent": false },
+    { "source": "/download", "destination": "https://polar.sh/vertias/portal", "permanent": false }
+  ]
+}

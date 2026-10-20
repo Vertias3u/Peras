@@ -88,7 +88,7 @@ function hashPath(p) {
 
 // The key a resume, a notification or an ask is remembered under. A window line in
 // all-day, global form keeps 0.1's key, so an upgrade does not repeat a notification.
-function ruleId(r) {
+export function ruleId(r) {
   const base = r.kind === "window" ? `${r.window}:${r.at}:${r.action}` : `${r.kind}:${r.window}:${r.at}:${r.action}`;
   return `${base}${r.during ? `:${r.during}` : ""}${r.project ? `:p${hashPath(r.project)}` : ""}`;
 }

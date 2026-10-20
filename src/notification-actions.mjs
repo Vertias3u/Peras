@@ -20,7 +20,21 @@ export function createActionTicket(root,env,{provider=env.PERAS_PROVIDER==='code
  const selected=Object.fromEntries(["HOME","PERAS_HOME","CLAUDE_CONFIG_DIR","CODEX_HOME"].filter(k=>typeof env[k]==='string').map(k=>[k,env[k]]));
  writeJsonAtomic(path.join(directory,`${id}.json`),{id,env:selected,provider,category:['pause','reminder'].includes(category)?category:'status',resetsAt:resetsAt||null,createdAt:now,pauseKeys:pauseKeys.filter(k=>typeof k==='string').slice(0,100),expiresAt:now+7*86400_000});return id;
 }
-export async function handleNotificationAction(file,action,{now=Date.now(),openURL=async url=>promisify(execFile)(process.platform==='darwin'?'/usr/bin/open':'xdg-open',[url]),resumeAgent=resume}={}){
+/**
+ * v0.4: a click on a notification brings Peras's own menu forward when the menu app is
+ * the live menu and is running from this PERAS_HOME (the reopen `peras menubar open` uses).
+ * A quit app is never relaunched by a notification; it, SwiftBar and 0.3 get the status page.
+ * Loaded lazily: native-app → menubar → unused-reminders imports this file.
+ */
+export async function openNativeMenu(env,{platform=process.platform,running,launch}={}){
+ if(platform!=='darwin')return false;
+ const app=await import("./native-app.mjs");
+ if(app.liveMenu(env)!=='native')return false;
+ const bundle=app.appPath(env);
+ if(!(running??app.appRunning)(bundle))return false;
+ (launch??app.launchApp)(bundle);return true;
+}
+export async function handleNotificationAction(file,action,{now=Date.now(),openURL=async url=>promisify(execFile)(process.platform==='darwin'?'/usr/bin/open':'xdg-open',[url]),resumeAgent=resume,openMenu=openNativeMenu}={}){
  if(!/^[\da-f-]{36}\.json$/.test(path.basename(file)))throw new Error("Invalid notification action ticket.");
  const ticket=readJson(file);if(!ticket||ticket.id!==path.basename(file,'.json')||ticket.expiresAt<=now||!['claude','codex'].includes(ticket.provider))throw new Error("This notification action has expired.");
  const env=ticket.env,scoped=ticket.provider==='codex'?codexEnv(env):env;
@@ -40,7 +54,9 @@ export async function handleNotificationAction(file,action,{now=Date.now(),openU
   return {snoozed:snoozeReminder(scoped,ticket.resetsAt,now)};
  }
  if(!['PERAS_STATUS','com.apple.UNNotificationDefaultActionIdentifier'].includes(action))throw new Error("Unknown notification action.");
- const snapshots=await Promise.all([snapshot(env,now),snapshot(env,now,{provider:'codex'})]);const target=writeStatusPage(env,snapshots,now);await openURL(pathToFileURL(target).href);return {opened:true};
+ let menu=false;try{menu=await openMenu(env)}catch{/* the status page instead */}
+ if(menu)return {opened:true,target:'menu'};
+ const snapshots=await Promise.all([snapshot(env,now),snapshot(env,now,{provider:'codex'})]);const target=writeStatusPage(env,snapshots,now);await openURL(pathToFileURL(target).href);return {opened:true,target:'status'};
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const file=process.argv[2]||'',action=process.argv[3]||'';

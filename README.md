@@ -11,7 +11,7 @@
 
 Peras watches Claude Code and Codex subscription usage, forecasts when your allowance will run out, and pauses guarded work at the lines you choose. On macOS, Clawd and the Codex companion walk back and forth above their usage bars, then stand still when paused. Spend the last of your week on purpose.
 
-> **0.3: early software for Claude Code and Codex.** Free, MIT-licensed, and local, with no Peras account required. Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
+> **0.4: early software for Claude Code and Codex.** The CLI and hooks are free, MIT-licensed and local, with no Peras account required. The Peras app is €4.99, or [build it yourself](#build-the-app-yourself). Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
 > ⭐ **Star it** if it saves your week.
 
 ```sh
@@ -19,7 +19,7 @@ npx peras-cli setup        # Claude Code (Node 18+, no runtime dependencies)
 npx peras-cli codex setup  # Codex; run either setup, or both
 ```
 
-On macOS, add the optional [SwiftBar](https://github.com/swiftbar/SwiftBar) menu with `npx peras-cli menubar install` after setting up a provider. The CLI and hooks work without the menu. See [Codex setup](#codex-desktop-and-cli) for hook trust and activation.
+On macOS 13 or later, the Peras app puts the menu in your menu bar: get it at [peras.vertias.eu/app](https://peras.vertias.eu/app) (€4.99, once) or [build it yourself](#build-the-app-yourself), open `Peras.zip`, then run `npx peras-cli menubar install --native --app ~/Downloads/Peras.app` after setting up a provider. Prefer [SwiftBar](https://github.com/swiftbar/SwiftBar)? `npx peras-cli menubar install` gives the free SwiftBar menu instead. The CLI and hooks work without either. See [Codex setup](#codex-desktop-and-cli) for hook trust and activation.
 
 ---
 
@@ -89,6 +89,8 @@ Defaults (all changeable):
 
 Run `peras update` to check npm for a newer published release, update the global CLI, and refresh the Claude/Codex hooks and SwiftBar menu you already installed. Your rules, pauses, history, and menu preferences stay in place. It does not install hooks for agents you haven't set up. `peras update --check` only reports availability. A newer local or development version is never downgraded to an older published release. If the CLI is already updated but the hook copies are older, `peras update` refreshes those copies too. Restart open agent sessions after an upgrade and review changed hooks in Codex if prompted. Updates use your npm global prefix; permission or network failures are reported, without automatic sudo.
 
+**With the Peras app**, updates are included in your purchase. The app runs a CLI from its own 0.x line, so `peras update` stays on that line: when a new line comes out (0.4 → 0.5), it says so, and you download the new app from [peras.vertias.eu/download](https://peras.vertias.eu/download) and run `peras update --app ~/Downloads/Peras.app` to move the CLI and the app together. If installation or hook refresh fails, the previous CLI, app and hook settings are restored from a local backup, including unpublished preview builds. A downloaded app that fails its first open is kept aside for approval and retry, while the previous app returns to its installed path. Any failure to restore is reported with the backup location. A newer app on your own line shows up in the menu as **Newer Peras App Available…**.
+
 ## Commands
 
 ```sh
@@ -102,11 +104,13 @@ peras pause [1h|18:00]      # pause Claude Code now, for a while or until you re
 peras resume [1h]           # lift a pause: for the rest of the window, or for 1h
 peras set weekly 85 pause   # a line: 5h|weekly, warn|ask|pause, 1-100|off
 peras set reset             # back to the defaults
-peras menubar install       # 🍐 in the macOS menu bar, with Pause / Resume
+peras menubar install --native --app ~/Downloads/Peras.app  # the Peras app draws the 🍐
+peras menubar install       # or the SwiftBar menu, with Pause / Resume
 peras menubar display pear  # pear only (usage restores the icons and percentages)
 peras menubar quit          # close the menu bar; protection keeps running
 peras menubar open          # open it again
 peras doctor                # check everything is wired up, hooks included
+peras agents on             # tell each agent both agents' usage at 50/75/90/100%
 peras notify                # which desktop notifications are on (peras notify resets on)
 peras test                  # try pause and resume on a throwaway copy of the hooks
 peras remove                # takes out exactly what setup added
@@ -114,9 +118,38 @@ peras remove                # takes out exactly what setup added
 
 The package is `peras-cli`; the command is `peras`.
 
-**Upgrading?** `npm i -g peras-cli@latest`, then run `peras setup` again: the hooks run their own copy, and `peras status` tells you when it's out of date.
+**Upgrading?** Run `peras update`: it updates the CLI and refreshes the hooks, which run their own copy (`peras status` tells you when that copy is out of date). Setup installs the new copy completely before switching to it, so a hook always runs one whole version, even if setup is interrupted. Old copies are removed after a week once nothing uses them; `peras doctor` shows which version the hooks run.
 
-**Menu bar:** needs [SwiftBar](https://github.com/swiftbar/SwiftBar) (free: `brew install --cask swiftbar`, open it once and pick a plugins folder).
+**Menu bar:** the Peras app (macOS 13 or later, Apple silicon or Intel), €4.99 at [peras.vertias.eu/app](https://peras.vertias.eu/app), or [build it yourself](#build-the-app-yourself). Or [SwiftBar](https://github.com/swiftbar/SwiftBar) (free: `brew install --cask swiftbar`, open it once and pick a plugins folder).
+
+**The Peras app** shows one row per agent: the 5-hour bar with its reset time, the weekly bar with a pace mark, and a ⏸ to pause that agent (right-click for an hour). ⌃⌥P opens it from anywhere, full-screen apps included; the pin keeps it open as a panel. Settings, setup with a protection test, and the weekly recap live in the app, and it opens at login (switch that off in Settings). Installing it checks the app, waits until it answers, and only then moves Peras's SwiftBar plugin aside; if anything fails, SwiftBar's menu stays. For the hook refresh and session restart needed when going back, see [Going back to 0.3](#going-back-to-03). Start new agent sessions afterwards, so per-prompt lines count from a fresh prompt.
+
+## Going back to 0.3
+
+Stop your current agent sessions before downgrading. Quit the app, install 0.3.2, refresh the hooks you use, and reinstall the SwiftBar menu:
+
+```sh
+peras menubar quit
+npm install --global peras-cli@0.3.2
+peras setup
+peras codex setup
+peras menubar install
+```
+
+Run only the setup lines for providers you already use. **Start new agent sessions afterwards**, with a new prompt, and check `peras why` before leaving agents unattended. A global npm downgrade alone does not replace the hooks' private runtime copy. Your rules, usage history, manual pauses and saved resumes keep their 0.3-compatible formats. The app removes its login item when it encounters the older runtime.
+
+Hook memory from 0.4 (per-prompt baselines, recent sessions and pace latches) is not exported into 0.3's state file. A new prompt establishes a new per-prompt baseline; lines are evaluated again from the saved readings. Keeping this memory separate prevents a running 0.4 hook from overwriting a pause or resume. The 0.4 memory files remain in place if you upgrade again.
+
+## Build the app yourself
+
+The app's source is in [`native/`](native/), under the same MIT license as the rest. Buying it gets you a copy signed and notarized by Apple, and keeps Peras going; building it is fine too. You need macOS 13 or later, Node 18+, and Apple's command line tools (`xcode-select --install`):
+
+```
+git clone --branch v0.4.0 https://github.com/Vertias3u/Peras && cd Peras
+npm run build:app
+```
+
+It builds the app for Apple silicon and Intel, runs the app's own checks, and prints the `peras menubar install --native --app …` line for the copy it made. Use the tag that matches `peras --version`: the app only talks to a CLI from its own 0.x line. The copy is signed for your Mac only, so share the source rather than the app.
 
 ## Codex desktop and CLI
 
@@ -140,19 +173,23 @@ Codex supports hook denial but cannot create an approval prompt. A Peras `ask` l
 
 `peras status` shows both providers. Codex normally refreshes at most once a minute. Readings more than five minutes old are marked as older, and a failed refresh is shown explicitly. Saved readings count only until their windows reset. A manual pause still blocks Codex tools if usage fetching fails.
 
-`peras why` explains each active rule, its folder scope when relevant, and when it lifts. The menu bar title shows a pear, the Claude icon and its 5-hour percentage, then the Codex icon and its 5-hour percentage. Choose **Menu bar display → Pear only** in the dropdown to hide the icons and percentages, or select **Pear + icons and percentages** to restore them. The choice is saved across setup and upgrades. Missing readings show a dash; paused agents' percentages turn red. The dropdown shows compact 5-hour and weekly progress bars and each agent's pause/resume controls. Reset times appear beside each usage bar. Status includes reading ages, warning details, and refresh errors. Status opens a local browser readout with usage, resets, and active pause reasons, refreshed every 10 seconds. Explain limits opens a bundled, offline webpage in your browser, covering the usage windows, warnings, pauses, and menu controls. Run either provider's setup before `peras menubar install`. **Quit**, at the bottom of the dropdown, closes SwiftBar (it says "Quit SwiftBar (all plugins)" when other SwiftBar plugins share its folder). The hooks don't need the menu, so protection keeps running; `peras menubar open` brings the pear back, and so does SwiftBar at login if it's in your Login Items. Typed on its own, `peras menubar` says whether the pear is in the menu bar and lists these commands.
+`peras why` explains each active rule, its folder scope when relevant, and when it lifts.
+
+**The SwiftBar menu.** The menu labels in this section and the next few are the free SwiftBar menu's. In the Peras app, Settings offers Pear, Pear + usage or Filling pear for the menu bar, and Bar, Text or Off for weekly usage; a paused agent's bar turns indigo; its Quit closes Peras, and hook protection keeps running.
+
+In SwiftBar, the menu bar title shows a pear, the Claude icon and its 5-hour percentage, then the Codex icon and its 5-hour percentage. Choose **Menu bar display → Pear only** in the dropdown to hide the icons and percentages, or select **Pear + icons and percentages** to restore them. The choice is saved across setup and upgrades. Missing readings show a dash; paused agents' percentages turn red. The dropdown shows compact 5-hour and weekly progress bars and each agent's pause/resume controls. Reset times appear beside each usage bar. Status includes reading ages, warning details, and refresh errors. Status opens a local browser readout with usage, resets, and active pause reasons, refreshed every 10 seconds. Explain limits opens a bundled, offline webpage in your browser, covering the usage windows, warnings, pauses, and menu controls. Run either provider's setup before `peras menubar install`. **Quit**, at the bottom of the dropdown, closes SwiftBar (it says "Quit SwiftBar (all plugins)" when other SwiftBar plugins share its folder). The hooks don't need the menu, so protection keeps running; `peras menubar open` brings the pear back, and so does SwiftBar at login if it's in your Login Items. Typed on its own, `peras menubar` says whether the pear is in the menu bar and lists these commands.
 
 Status, explanations, and Resume include folder rules from sessions seen by the hooks in the last seven days, even when run outside those folders. Start a new turn after updating to register existing sessions. Removing Claude's setup keeps the shared menu bar while another provider or account is installed. A timed resume can be extended with another timed resume, or changed to last until reset with plain `resume`; zero-length durations are rejected.
 
-Clawd and the Codex companion walk above their 5-hour usage tracks, and stand still when their agent is paused or waiting for approval. The motion is decorative; the fill still measures usage. Animation runs locally with no model calls, and usage is fetched on its normal schedule. Setup replaces the older menu bar plugin entry so SwiftBar loads the streaming renderer automatically.
+Clawd and the Codex companion walk above their 5-hour usage tracks, and stand still when their agent is paused or waiting for approval. The motion is decorative; the fill still measures usage. Animation runs locally with no model calls, and usage is fetched on its normal schedule. If you use SwiftBar, setup replaces the older menu bar plugin entry so it loads the streaming renderer automatically.
 
 Each provider shows hook health: Protection active means a tool guard ran within the last 15 minutes, or a successful protection self-test refreshed a previously verified, unchanged setup within that time. Status identifies the verification source and retains the last live hook time. Needs trust / activation, Setup missing, Hooks disabled, and Not recently verified explain when protection cannot be confirmed. This is evidence for that provider and account; it does not verify every open session. `peras status` and `peras doctor` show the same health in Terminal. Timed pauses show the end time and remaining duration beside the Resume controls. Usage bars show countdowns alongside reset times.
 
-In Settings → Menu bar display, toggle Show mascots and Show weekly bars independently. In Settings → Notifications, choose Warnings, Pauses and approval requests, and Usage resets. Warning and pause alerts default to on; resets default to off. Reset alerts need the menu bar running and fire once when a tracked window reaches its reported reset time. Notification settings do not disable enforcement. Preferences survive setup and upgrades. **Use it or lose it reminders** start off: enable them in Notifications or with `peras notify unused on`. Once per provider and weekly window, Peras reminds you when at least 20% remains and reset is within 48 hours. A matching menu row stays visible while eligible, even with weekly bars hidden. Reminders need the menu running and a weekly reading no older than five minutes; failed refreshes suppress them until a fresh reading arrives. Run `peras notify test` for a sample. On macOS alerts use a bundled native Peras app with the pear icon, with no compiler needed. Allow its one-time notification request, or enable Peras in System Settings → Notifications. `peras notify test` waits for the native sender and reports permission or delivery errors. Linux alerts supply the pear icon to the desktop notifier. From Terminal, `peras notify` lists the notification settings and `peras notify resets on` switches one; `peras menubar preference mascots|weekly on|off` sets the display toggles.
+In SwiftBar's Settings → Menu bar display, toggle Show mascots and Show weekly bars independently. In Settings → Notifications, choose Warnings, Pauses and approval requests, and Usage resets. Warning and pause alerts default to on; resets default to off. Reset alerts need the menu bar running and fire once when a tracked window reaches its reported reset time. Notification settings do not disable enforcement. Preferences survive setup and upgrades. **Use it or lose it reminders** start off: enable them in Notifications or with `peras notify unused on`. Once per provider and weekly window, Peras reminds you when at least 20% remains and reset is within 48 hours. A matching menu row stays visible while eligible, even with weekly bars hidden. Reminders need the menu running and a weekly reading no older than five minutes; failed refreshes suppress them until a fresh reading arrives. Run `peras notify test` for a sample. On macOS alerts use a bundled native Peras app with the pear icon, with no compiler needed. Allow its one-time notification request, or enable Peras in System Settings → Notifications. `peras notify test` waits for the native sender and reports permission or delivery errors. Linux alerts supply the pear icon to the desktop notifier. From Terminal, `peras notify` lists the notification settings and `peras notify resets on` switches one; `peras menubar preference mascots|weekly on|off` sets the display toggles.
 
-Choose **Settings → Protection test…** in the pear menu to run the installed hook commands against disposable state. It checks unpaused → allowed, paused → denied, and resumed → allowed for Claude and Codex. Results appear in Status; `peras test` runs the same check from Terminal. The test does not pause your working agents or make model calls. It validates the hook commands, while hook health separately reports live activation.
+Choose **Settings → Protection test…** in the SwiftBar menu (in the Peras app, it's setup's last step) to run the installed hook commands against disposable state. It checks unpaused → allowed, paused → denied, and resumed → allowed for Claude and Codex. Results appear in Status; `peras test` runs the same check from Terminal. The test does not pause your working agents or make model calls. It validates the hook commands, while hook health separately reports live activation.
 
-**Settings → Recent events…** opens the latest 50 event summaries in Status. Warnings, automatic pauses, approval requests, manual pauses/resumes, timed pause expiry, usage-window resets, and protection test results are recorded locally—even with desktop alerts disabled. `peras events` prints the same history. Logs rotate to keep storage bounded, and contain no prompts or tool commands. History starts with new events after this update; it does not reconstruct older activity.
+**Settings → Recent events…** in the SwiftBar menu opens the latest 50 event summaries in Status. Warnings, automatic pauses, approval requests, manual pauses/resumes, timed pause expiry, usage-window resets, and protection test results are recorded locally—even with desktop alerts disabled. `peras events` prints the same history. Logs rotate to keep storage bounded, and contain no prompts or tool commands. History starts with new events after this update; it does not reconstruct older activity.
 
 Per-prompt thresholds work for both interactive agents: `peras set prompt 3 pause` for Claude and `peras codex set prompt 3 pause` for Codex. The allowance is a rise of three percentage points of weekly usage from that session's latest prompt baseline; the next prompt starts a new baseline. Usage is account-wide, so parallel sessions can contribute to the rise. When a Codex per-prompt rule is enabled, each prompt reads fresh rate limits, and tool calls reuse a reading at most 10 seconds old instead of the menu's one-minute cache.
 
@@ -214,9 +251,9 @@ Add `codex` after `peras` for Codex's pacing, profiles, extras, sessions or comp
 
 **Temporary extras** extend an existing daily/pacing or project allowance. They do not resume the entire agent, remove another rule or refill provider usage. Grants need a reading from the current weekly window, which may be older than five minutes, and end at the earlier of the chosen expiry, local midnight, or weekly reset. The editor can grant and revoke them. Daily extras extend both a configured daily allowance and its workday share; project extras affect only that folder's allowance. Usage counters keep counting throughout.
 
-**Session overview**, in Settings or Status, lists sessions whose hooks Peras observed in the last seven days, their folders, last hook activity, current action and applicable limits. It contains no prompts or tool commands and is not a process monitor. A recently seen session may already have ended.
+**Session overview**, in the SwiftBar menu's Settings or Status, lists sessions whose hooks Peras observed in the last seven days, their folders, last hook activity, current action and applicable limits. It contains no prompts or tool commands and is not a process monitor. A recently seen session may already have ended.
 
-**Weekly comparison**, in the pear menu and Status, compares the two most recent completed observed weeks: peak usage, last-known remaining allowance and retained intervention counts. `peras compare` provides a text summary. Partial tracking is marked; differences can reflect different workloads or gaps, so this does not prove limits caused a reduction.
+**Weekly comparison**, in the SwiftBar menu and Status, compares the two most recent completed observed weeks: peak usage, last-known remaining allowance and retained intervention counts. `peras compare` provides a text summary. Partial tracking is marked; differences can reflect different workloads or gaps, so this does not prove limits caused a reduction.
 
 On **macOS**, native pear notifications include **Open Status**. Pause/approval alerts also offer **Resume for 1 hour**, and unused-allowance reminders offer **Remind me in 1 hour**. Resume applies only to the original provider/account and refuses if the pause has changed or the action is over an hour old; it opens Status instead. Snoozed reminders repeat once after the hour only while the menu is running, reminders remain enabled, and fresh usage still qualifies. Existing older notifications may lack the new actions. Linux continues to receive pear notifications without these native Mac action buttons.
 

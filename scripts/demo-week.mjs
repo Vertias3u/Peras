@@ -1,6 +1,6 @@
 // A made-up week in a throwaway home, for the README and the site's terminal.
 //   node scripts/demo-week.mjs [status|why|history|menubar show|statusline]
-//   node scripts/demo-week.mjs site-images   redraws site/menubar/*.png from the demo week's menu
+//   node scripts/demo-week.mjs site-menu RUN_ROOT   redraws site/menubar/app-*.png with a built Peras app
 //   node scripts/demo-week.mjs --check   fails if README.md or site/index.html no longer match
 // The output is real: it is Peras itself, run on the demo week.
 process.env.TZ = "Europe/Sofia";
@@ -55,57 +55,44 @@ function statusline() {
   return runStatusline({ stdin: JSON.stringify(input), env: { ...env, NO_COLOR: "1" }, now: NOW }).stdout.trim();
 }
 
-// The menu bar as SwiftBar shows it: each row's text and its dark-mode image.
-async function menubar() {
-  return (await run(["menubar"])).split("\n").map((line) => {
-    const [text, params = ""] = line.split(" | ");
-    const image = /image=([A-Za-z0-9+/=]+)(?:,([A-Za-z0-9+/=]+))?/.exec(params);
-    return { text: text.trimEnd(), image: image && Buffer.from(image[2] ?? image[1], "base64") };
-  });
-}
-
 const args = process.argv.slice(2);
-if (args[0] === "site-images") {
-  const { progressImage } = await import(new URL("src/menubar-image.mjs", root));
-  const { inflateSync, deflateSync } = await import("node:zlib");
-  const rows = await menubar();
-  const out = new URL("site/menubar/", root);
-  fs.mkdirSync(out, { recursive: true });
-  const labels = rows.filter((r) => r.image && !r.text && r !== rows[0]);
-  const weeks = rows.filter((r) => r.text.startsWith("Week"));
-  const files = { "title.png": rows[0].image, "label-claude.png": labels[0].image, "label-codex.png": labels[1].image, "week-claude.png": weeks[0].image, "week-codex.png": weeks[1].image };
-  // The 5-hour bars as a strip of 80 frames, 125 ms apart: one 10 s walk there and back, as the menu streams it.
-  const rgba = (png) => {
-    let i = 8, w = 0, h = 0; const idat = [];
-    while (i < png.length) { const n = png.readUInt32BE(i), type = png.toString("ascii", i + 4, i + 8), data = png.subarray(i + 8, i + 8 + n); i += 12 + n; if (type === "IHDR") { w = data.readUInt32BE(0); h = data.readUInt32BE(4); } if (type === "IDAT") idat.push(data); }
-    const raw = inflateSync(Buffer.concat(idat)), px = Buffer.alloc(w * h * 4);
-    for (let y = 0; y < h; y++) raw.copy(px, y * w * 4, y * (w * 4 + 1) + 1, (y + 1) * (w * 4 + 1));
-    return px;
-  };
-  const strip = (frames, w, h) => {
-    const width = w * frames.length, px = Buffer.alloc(width * h * 4);
-    frames.forEach((f, n) => { for (let y = 0; y < h; y++) f.copy(px, (y * width + n * w) * 4, y * w * 4, (y + 1) * w * 4); });
-    const rows = Buffer.alloc((width * 4 + 1) * h);
-    for (let y = 0; y < h; y++) px.copy(rows, y * (width * 4 + 1) + 1, y * width * 4, (y + 1) * width * 4);
-    // Reuse Peras' own PNG writer by drawing a bar and swapping in these pixels.
-    const head = progressImage(0).png, ihdr = Buffer.from(head.subarray(8, 33));
-    ihdr.writeUInt32BE(width, 8); ihdr.writeUInt32BE(h, 12);
-    return Buffer.concat([head.subarray(0, 8), chunk("IHDR", ihdr.subarray(8, 21)), chunk("IDAT", deflateSync(rows, { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
-  };
-  const crcTable = Array.from({ length: 256 }, (_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
-  function chunk(type, data) {
-    const body = Buffer.concat([Buffer.from(type), data]); let crc = 0xffffffff;
-    for (const b of body) crc = crcTable[(crc ^ b) & 255] ^ (crc >>> 8);
-    const len = Buffer.alloc(4), sum = Buffer.alloc(4); len.writeUInt32BE(data.length); sum.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
-    return Buffer.concat([len, body, sum]);
-  }
-  for (const [provider, row] of [["claude", rows.find((r) => r.text.startsWith("5h"))], ["codex", rows.filter((r) => r.text.startsWith("5h"))[1]]]) {
-    const pct = Number(/(\d+)%/.exec(row.text)[1]);
-    const frames = Array.from({ length: 80 }, (_, n) => rgba(progressImage(pct, { tone: provider, mascot: { provider, timeMs: n * 125, paused: false } }).png));
-    files[`walk-${provider}.png`] = strip(frames, 192, 40);
-  }
-  for (const [name, png] of Object.entries(files)) fs.writeFileSync(new URL(name, out), png);
-  console.log(`Wrote ${Object.keys(files).length} images to site/menubar/.`);
+// The Peras app's menu on the demo week, rendered by a built app (./script/build_and_run.sh --headless):
+// the demo week becomes a protocol-1 snapshot, the app's menu probe draws it in dark mode without its
+// "Preview" badge, and the menu and menu bar title land in site/menubar/app-*.png.
+if (args[0] === "site-menu") {
+  const runRoot = args[1];
+  if (!runRoot || !path.isAbsolute(runRoot)) throw new Error("usage: demo-week.mjs site-menu ABSOLUTE_NATIVE_RUN_ROOT");
+  const { spawnSync } = await import("node:child_process");
+  const { refreshCodex } = await import(new URL("src/codex.mjs", root));
+  const { snapshot } = await import(new URL("src/providers.mjs", root));
+  const { providerPayload, settingsPayload, discoveryPayload, snapshotMessage, snapshotProblems } = await import(new URL("src/native-protocol.mjs", root));
+  await refreshCodex(env, NOW - 60_000, { reader: codexReader });
+  const sign = (body) => `tok_demo_${JSON.stringify(body).length}`;
+  const providers = [];
+  for (const provider of ["claude", "codex"]) providers.push(providerPayload(await snapshot(env, NOW, { provider, cwd: null }), { now: NOW, sign, id: () => `ctx_demo_${provider}` }));
+  const message = snapshotMessage({ bridgeInstance: "demo", revision: 1, now: NOW, providers, settings: settingsPayload(env, { now: NOW, sign }), discovery: discoveryPayload(env, providers, { now: NOW, sign }) });
+  const problems = snapshotProblems(message);
+  if (problems.length) throw new Error(`demo snapshot: ${problems.join(", ")}`);
+  // The app hides resets that are behind the real clock: move every time forward by whole weeks,
+  // so the menu shows the demo week's weekdays and times.
+  // Whole weeks, less any summer-time change between the two dates, so the wall-clock times stay.
+  const WEEK = 7 * 24 * H, weeks = Math.ceil((Date.now() - NOW) / WEEK + 1) * WEEK;
+  const shift = weeks + (new Date(NOW + weeks).getTimezoneOffset() - new Date(NOW).getTimezoneOffset()) * 60_000;
+  const later = (value, key) => (typeof value === "number" && /Ms$/.test(key) && value > 1e12 ? value + shift
+    : Array.isArray(value) ? value.map((v) => later(v, key))
+    : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, later(v, k)])) : value);
+  const shifted = later(message, "");
+  const work = fs.mkdtempSync(path.join("/private/tmp", "peras-site-menu-"));
+  fs.mkdirSync(path.join(work, "fixtures"));
+  fs.writeFileSync(path.join(work, "fixtures", "demo-week.json"), JSON.stringify(shifted));
+  const probe = path.join(work, "probe");
+  const launched = spawnSync(process.execPath, [new URL("native/scripts/launch-built.mjs", root).pathname, runRoot, "--menu-probe", probe, "--site-image", "--fixtures", path.join(work, "fixtures"), "--fixture", "demo-week"], { stdio: "inherit", env: { ...process.env, PERAS_LAUNCH_TZ: process.env.TZ } });
+  const report = JSON.parse(fs.readFileSync(path.join(probe, "menu-probe.json"), "utf8"));
+  if (launched.status !== 0 || !report.complete || !report.titleWritten || !report.images?.[0]?.nonblank) throw new Error(`The app did not draw the menu; see ${probe}`);
+  fs.copyFileSync(path.join(probe, "site-menu.png"), new URL("site/menubar/app-menu.png", root));
+  fs.copyFileSync(path.join(probe, "site-title.png"), new URL("site/menubar/app-title.png", root));
+  fs.rmSync(work, { recursive: true, force: true });
+  console.log(`Wrote site/menubar/app-menu.png (${report.images[0].width}×${report.images[0].height}) and app-title.png.`);
   process.exit(0);
 }
 if (args[0] !== "--check") {
@@ -129,11 +116,10 @@ for (const row of term.split("\n")) {
   if (!text.trim() || text.startsWith("$")) continue;
   if (!lines.has(text)) problems.push(`site/index.html terminal shows a line Peras no longer prints: ${text}`);
 }
-// The menu bar drawn on the site shows rows the menu really has.
-const menu = new Set((await menubar()).map((r) => r.text.replace(/^-+/, "")));
-for (const [, row] of site.matchAll(/data-menu>([^<]*)</g)) {
-  const text = row.replace(/&amp;/g, "&");
-  if (!menu.has(text)) problems.push(`site/index.html menu bar shows a row the menu no longer has: ${text}`);
+// The app's menu on the site is a picture of the demo week; its description must name the demo's numbers.
+const described = /aria-label="The Peras app's menu: ([^"]*)"/.exec(site)?.[1] ?? "";
+for (const value of [`${reading.fiveHour}%`, `${reading.sevenDay}%`, "12%", "41%"]) {
+  if (!described.includes(value)) problems.push(`site/index.html describes the app's menu without the demo week's ${value}: run demo-week.mjs site-menu and update its aria-label`);
 }
 if (problems.length) {
   console.error(problems.join("\n"));

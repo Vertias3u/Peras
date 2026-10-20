@@ -1,0 +1,135 @@
+{
+  "reviewedRoot": "/private/tmp/peras-v04-live-review-04spd6m7/backend-snapshot",
+  "now": 1791979200000,
+  "cases": {
+    "pauseRace": {
+      "offerEligible": true,
+      "operation": {
+        "ok": true
+      },
+      "newerPause": {
+        "since": 1791979200001,
+        "until": null
+      },
+      "savedPause": {
+        "since": 1791979200000,
+        "until": 1791982800000
+      }
+    },
+    "snapshotPacingWrite": {
+      "changedFiles": [
+        "planning/1d962bf5fd49.json"
+      ],
+      "createdAnchor": {
+        "day": "2026-10-14",
+        "resetsAt": 1792238400,
+        "signature": "{\"days\":[0,1,2,3,4,5,6],\"reserve\":20}",
+        "at": 10,
+        "share": 10,
+        "days": 4,
+        "since": 1791979200000
+      }
+    },
+    "snapshotCodexWrite": {
+      "changedFiles": [
+        "allowances/a50cb95306e8.json",
+        "windows/a50cb95306e8.json",
+        "codex/a50cb95306e8-rate-limits.json",
+        "usage/a50cb95306e8.json"
+      ]
+    },
+    "unofferedSettings": {
+      "offers": [
+        "pause",
+        "pause",
+        "pause",
+        "pause"
+      ],
+      "operation": {
+        "ok": true
+      },
+      "mascots": false
+    },
+    "profilePrivacy": {
+      "privateName": "/Users/review-alice/private-notes",
+      "profiles": {
+        "names": [
+          "/Users/review-alice/private-notes"
+        ],
+        "active": "/Users/review-alice/private-notes",
+        "modified": false
+      },
+      "containsFullPrivatePath": true
+    },
+    "inheritedOperation": {
+      "direct": {
+        "name": "TypeError",
+        "code": null,
+        "message": "Cannot convert undefined or null to object"
+      },
+      "exit": 1,
+      "signal": null,
+      "stderrHasSourcePath": true,
+      "stderr": "file:///private/tmp/peras-v04-live-review-04spd6m7/backend-snapshot/src/native-protocol.mjs:299\n  const keys = Object.keys(spec.params);\n                      ^\n\nTypeError: Cannot convert undefined or null to object\n    at Function.keys (<anonymous>)\n    at parseCommand (file:///private/tmp/peras-v04-live-review-04spd6m7/backend-snapshot/src/native-protocol.mjs:299:23)\n    at handle (file:///private/tmp/peras-v04-live-review-04spd6m7/backend-snapshot/src/native-bridge.mjs:57:21)\n    at file:///private/tmp/peras-v04-live-review-04spd6m7/backend-snapshot/src/native-bridge.mjs:80:74\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n\nNode.js v22.23.1\n",
+      "stdout": "{\"type\":\"hello\",\"protocol\":1,\"bridgeInstance\":\"22d6110f-a4b6-466f-97d5-483844d57f3a\",\"runtimeVersion\":\"0.3.2\",\"environmentId\":\"env_ece37792b2a8\"}\n{\"type\":\"snapshot\",\"protocol\":1,\"bridgeInstance\":\"22d6110f-a4b6-466f-97d5-483844d57f3a\",\"revision\":1,\"generatedAtMs\":1792239943494,\"providers\":[{\"id\":\"claude\",\"accountContextId\":\"ctx_dc1a4674c023\",\"label\":\"Claude Code\",\"windows\":[{\"window\":\"five_hour\",\"used\":null,\"resetsAtMs\":null,\"seenAtMs\":null,\"freshness\":\"missing\"},{\"window\":\"seven_day\",\"used\":null,\"resetsAtMs\":null,\"seenAtMs\":null,\"freshness\":\"missing\"}],\"readError\":false,\"health\":{\"state\":\"setup_missing\",\"liveGuardAtMs\":null},\"failurePolicy\":{\"mode\":\"default\",\"strict\":\"supported\"},\"verdict\":{\"action\":\"none\",\"reason\":null},\"reasons\":[],\"thresholds\":[{\"window\":\"seven_day\",\"at\":75,\"action\":\"warn\"},{\"window\":\"seven_day\",\"at\":90,\"action\":\"pause\"},{\"window\":\"five_hour\",\"at\":95,\"action\":\"warn\"}],\"planning\":{\"meters\":[]},\"profiles\":{\"names\":[],\"active\":null,\"modified\":false},\"actions\":[{\"op\":\"p"
+    },
+    "staleHookStartup": {
+      "exit": 0,
+      "firstLine": "(Updated the hooks from Peras 0.3.1 to 0.3.2 first. Restart open sessions to pick them up.)",
+      "firstLineIsJson": false,
+      "changedFiles": [
+        "install/fdda4f44f3f1.json",
+        "app/bin/peras.mjs",
+        "app/package.json",
+        "app/src/allowance-rules.mjs",
+        "app/src/allowances.mjs",
+        "app/src/alternative.mjs",
+        "app/src/blame.mjs",
+        "app/src/calendar.mjs",
+        "app/src/cli.mjs",
+        "app/src/codex.mjs",
+        "app/src/events.mjs",
+        "app/src/forecast.mjs",
+        "app/src/hook-health.mjs",
+        "app/src/hook.mjs",
+        "app/src/limits.html",
+        "app/src/look.mjs",
+        "app/src/mascot-atlas.json",
+        "app/src/mascot-sources.json",
+        "app/src/mascots.mjs",
+        "app/src/menubar-atlas.json",
+        "app/src/menubar-image.mjs",
+        "app/src/menubar-stream.mjs",
+        "app/src/menubar.mjs",
+        "app/src/native-bridge.mjs",
+        "app/src/native-operations.mjs",
+        "app/src/native-protocol.mjs",
+        "app/src/notification-actions.mjs",
+        "app/src/notification-icon.json",
+        "app/src/notification-native.json",
+        "app/src/notification-native.mjs",
+        "app/src/notification-worker.mjs",
+        "app/src/notify.mjs",
+        "app/src/planning.mjs",
+        "app/src/preferences.mjs",
+        "app/src/protection-test.mjs",
+        "app/src/providers.mjs",
+        "app/src/reset-notifications.mjs",
+        "app/src/review.mjs",
+        "app/src/rules.mjs",
+        "app/src/sessions.mjs",
+        "app/src/settings-page.mjs",
+        "app/src/settings-server.mjs",
+        "app/src/settings.mjs",
+        "app/src/status-page.mjs",
+        "app/src/statusline.mjs",
+        "app/src/store.mjs",
+        "app/src/unused-reminders.mjs",
+        "app/src/update.mjs",
+        "app/src/usage.mjs",
+        "app/src/window.mjs"
+      ],
+      "stderr": ""
+    }
+  }
+}

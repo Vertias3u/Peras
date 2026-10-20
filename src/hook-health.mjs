@@ -35,7 +35,7 @@ export function hookHealth(env, provider, now) {
   if (!wired) return { label: "Setup missing", detail: `Run peras ${codex ? "codex " : ""}setup to install the correct tool guard.` };
   const commands = settings.hooks.PreToolUse.flatMap(g => g.hooks || []).filter(h => /peras\.mjs/.test(h.command || ""));
   for (const hook of commands) {
-    const paths = hook.command.match(/^"([^"]+)"\s+"([^"]+)"/);
+    const paths = hook.command.match(/^(?:PERAS_STRICT=1 )?"([^"]+)"\s+"([^"]+)"/);
     if (paths && (!fs.existsSync(paths[1]) || !fs.existsSync(paths[2]))) return { label: "Setup missing", detail: "The Peras hook runtime is missing. Run setup again." };
   }
   const configuration = hookConfigurationFingerprint(scoped);

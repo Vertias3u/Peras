@@ -12,6 +12,7 @@ import { readUsage, trackReading, writeUsage } from "./usage.mjs";
 import { recordHookRun } from "./hook-health.mjs";
 import { preferences } from "./preferences.mjs";
 import { recordEvent } from "./events.mjs";
+import { recordDenial } from "./receipts.mjs";
 
 export const codexDir = (env = process.env) => env.CODEX_HOME || path.join(env.HOME || os.homedir(), ".codex");
 export const codexEnv = (env = process.env) => ({ ...env, CLAUDE_CONFIG_DIR: codexDir(env), PERAS_PROVIDER: "codex" });
@@ -236,7 +237,8 @@ export function removeCodex(env) {
 export async function runCodexHook({ input, env = process.env, now = Date.now(), reader, notify = () => {} } = {}) {
   const scoped = codexEnv(env);
   let refreshError;
-  touchAllowanceSession(scoped, String(input?.session_id ?? ""), input?.cwd, now);
+  // Only allowance bookkeeping: failing to note the session must not cost the check.
+  try { touchAllowanceSession(scoped, String(input?.session_id ?? ""), input?.cwd, now); } catch { /* noted next call */ }
   // Prompt allowances need a current baseline at each prompt, and recent usage
   // at tool calls. The menu's minute-long cache could otherwise hide the rise.
   const promptRule = readRules(scoped).some(rule => rule.kind === "prompt" && !rule.off) || readBudgetRules(scoped).length > 0 || Boolean(readPlanning(scoped).pacing);
@@ -252,6 +254,20 @@ export async function runCodexHook({ input, env = process.env, now = Date.now(),
     ctx.prompt = state.prompts[session];
   }
   const { action, hit, hits } = evaluate(ctx);
+  if (action === "pause" || action === "ask") {
+    // The deny is the answer: bookkeeping, events and notifications after it can fail without letting the tool run.
+    const d = describe(hit, now);
+    const deny = input?.hook_event_name === "PreToolUse"
+      ? { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `Peras ${action === "ask" ? "requires the user's OK" : "paused Codex"}: ${d.what}. ${d.lifts}. Stop and tell the user why.` } }
+      : { systemMessage: `Peras: ${d.what}. ${d.lifts}.` };
+    if (input?.hook_event_name === "PreToolUse") recordDenial(scoped, hit, now);
+    try { afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, notify }); } catch { /* the deny stands */ }
+    return deny;
+  }
+  return afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, notify, refreshError });
+}
+
+function afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, notify, refreshError }) {
   recordHookRun(scoped, input?.hook_event_name, now);
   state.latched = hits.filter((h) => h.kind === "pace").map((h) => h.key);
   writeHookState(scoped, state, now);
@@ -271,8 +287,7 @@ export async function runCodexHook({ input, env = process.env, now = Date.now(),
     return { systemMessage: `Peras: ${d.what}.` };
   }
   if (!state.notified.includes(notification)) { state.notified.push(notification); writeHookState(scoped, state, now); }
-  const reason = `Peras ${action === "ask" ? "requires the user's OK" : "paused Codex"}: ${d.what}. ${d.lifts}. Stop and tell the user why.`;
-  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+  return null;
 }
 
 export async function codexStatus(env, now = Date.now()) {

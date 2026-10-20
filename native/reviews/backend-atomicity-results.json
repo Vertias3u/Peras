@@ -1,0 +1,15 @@
+{
+  "insertedBySeparateProcess": true,
+  "stateReads": 2,
+  "operation": {
+    "ok": true
+  },
+  "newerIndefinitePause": {
+    "since": 1791979200001,
+    "until": null
+  },
+  "savedPause": {
+    "since": 1791979200000,
+    "until": 1791982800000
+  }
+}

@@ -111,6 +111,17 @@ test("removing Claude preserves the shared menu bar and Codex runtime", async ()
   assert.ok(fs.existsSync(path.join(env.PERAS_HOME, "app", "bin", "peras.mjs")));
 });
 
+test("setup swaps in a whole new runtime copy and leaves nothing beside it", async () => {
+  const { env } = sandbox();
+  await run(env, "setup");
+  const app = path.join(env.PERAS_HOME, "app");
+  fs.writeFileSync(path.join(app, "src", "left-over.mjs"), "// from an older Peras\n");
+  await run(env, "setup");
+  assert.ok(fs.existsSync(path.join(app, "bin", "peras.mjs")));
+  assert.ok(!fs.existsSync(path.join(app, "src", "left-over.mjs")), "the old copy is replaced, not merged into");
+  assert.deepEqual(fs.readdirSync(env.PERAS_HOME).filter((name) => name.startsWith("app.")), [], "no half-made or retired copy is left");
+});
+
 test("set: every kind, per folder, and reset keeps or drops folder lines", async () => {
   const { env } = sandbox();
   assert.match((await run(env, "set", "prompt", "3", "pause")).text, /weekly \+3% per prompt pause/);

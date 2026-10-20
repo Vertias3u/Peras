@@ -1,0 +1,25 @@
+{
+  "baseline": "HEAD:src/store.mjs",
+  "results": [
+    {
+      "scenario": "manual",
+      "equal": true
+    },
+    {
+      "scenario": "weekly_and_grant",
+      "equal": true
+    },
+    {
+      "scenario": "observed_projects_and_prompt",
+      "equal": true
+    },
+    {
+      "scenario": "corrupt_window_with_manual",
+      "equal": true
+    },
+    {
+      "scenario": "invalid_duration",
+      "equal": true
+    }
+  ]
+}

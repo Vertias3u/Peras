@@ -1,0 +1,467 @@
+{
+  "type": "snapshot",
+  "protocol": 1,
+  "bridgeInstance": "fixture",
+  "revision": 1,
+  "generatedAtMs": 1900000000000,
+  "providers": [
+    {
+      "id": "claude",
+      "accountContextId": "ctx_fixture_claude",
+      "label": "Claude Code",
+      "windows": [
+        {
+          "window": "five_hour",
+          "used": 41,
+          "resetsAtMs": 1900007200000,
+          "seenAtMs": 1899999970000,
+          "freshness": "current"
+        },
+        {
+          "window": "seven_day",
+          "used": 52,
+          "resetsAtMs": 1900259200000,
+          "seenAtMs": 1899999970000,
+          "freshness": "current"
+        }
+      ],
+      "readError": false,
+      "health": {
+        "state": "active",
+        "liveGuardAtMs": 1899999940000
+      },
+      "setup": {
+        "hooks": "configured",
+        "current": true,
+        "testPassedAtMs": null,
+        "next": null
+      },
+      "protectionReceipt": null,
+      "failurePolicy": {
+        "mode": "default",
+        "strict": "unknown"
+      },
+      "verdict": {
+        "action": "pause",
+        "reason": "rsn_553d8d1658f3"
+      },
+      "reasons": [
+        {
+          "id": "rsn_553d8d1658f3",
+          "code": "daily_pause",
+          "kind": "daily",
+          "action": "pause",
+          "window": "seven_day",
+          "at": 10,
+          "used": 12,
+          "unit": "points",
+          "scope": "global",
+          "project": null,
+          "expiresAtMs": 1900022400000
+        }
+      ],
+      "thresholds": [
+        {
+          "window": "seven_day",
+          "at": 75,
+          "action": "warn",
+          "state": "clear"
+        },
+        {
+          "window": "seven_day",
+          "at": 90,
+          "action": "pause",
+          "state": "clear"
+        },
+        {
+          "window": "five_hour",
+          "at": 95,
+          "action": "warn",
+          "state": "clear"
+        }
+      ],
+      "planning": {
+        "meters": [
+          {
+            "kind": "daily",
+            "period": "daily",
+            "action": "pause",
+            "project": null,
+            "baseLimit": 10,
+            "limit": 10,
+            "extra": 0,
+            "extraExpiresAtMs": null,
+            "spent": 12,
+            "remaining": 0,
+            "estimated": false,
+            "waitingForReading": false,
+            "resetsAtMs": 1900022400000
+          }
+        ]
+      },
+      "profiles": {
+        "names": [],
+        "active": null,
+        "modified": false
+      },
+      "actions": [
+        {
+          "op": "resume",
+          "provider": "claude",
+          "params": {
+            "duration": null
+          },
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_c5646fdb7748",
+          "expiresAtMs": null,
+          "lifts": [
+            "rsn_553d8d1658f3"
+          ],
+          "extends": []
+        },
+        {
+          "op": "resume",
+          "provider": "claude",
+          "params": {
+            "duration": "1h"
+          },
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_cb2aed2c9727",
+          "expiresAtMs": 1900003620000,
+          "lifts": [
+            "rsn_553d8d1658f3"
+          ],
+          "extends": []
+        },
+        {
+          "op": "pause",
+          "provider": "claude",
+          "params": {
+            "duration": null
+          },
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_b2cf6401902a",
+          "expiresAtMs": null
+        },
+        {
+          "op": "protection.test",
+          "provider": "claude",
+          "params": {},
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_a06d846c21b1",
+          "expiresAtMs": null
+        },
+        {
+          "op": "failurePolicy.set",
+          "provider": "claude",
+          "params": {
+            "policy": "strict"
+          },
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_bae9894b95d2",
+          "expiresAtMs": null
+        },
+        {
+          "op": "extra.daily",
+          "provider": "claude",
+          "params": {
+            "points": 3,
+            "duration": "1h"
+          },
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_cf4f55e6c4bf",
+          "expiresAtMs": 1900003620000
+        }
+      ],
+      "recap": null
+    },
+    {
+      "id": "codex",
+      "accountContextId": "ctx_fixture_codex",
+      "label": "Codex",
+      "windows": [
+        {
+          "window": "five_hour",
+          "used": null,
+          "resetsAtMs": null,
+          "seenAtMs": null,
+          "freshness": "missing"
+        },
+        {
+          "window": "seven_day",
+          "used": 34,
+          "resetsAtMs": 1900300000000,
+          "seenAtMs": 1899999970000,
+          "freshness": "current"
+        }
+      ],
+      "readError": false,
+      "health": {
+        "state": "active",
+        "liveGuardAtMs": 1899999910000
+      },
+      "setup": {
+        "hooks": "configured",
+        "current": true,
+        "testPassedAtMs": null,
+        "next": null
+      },
+      "protectionReceipt": null,
+      "failurePolicy": {
+        "mode": "default",
+        "strict": "unsupported"
+      },
+      "verdict": {
+        "action": "none",
+        "reason": null
+      },
+      "reasons": [],
+      "thresholds": [
+        {
+          "window": "seven_day",
+          "at": 75,
+          "action": "warn",
+          "state": "clear"
+        },
+        {
+          "window": "seven_day",
+          "at": 90,
+          "action": "pause",
+          "state": "clear"
+        },
+        {
+          "window": "five_hour",
+          "at": 95,
+          "action": "warn",
+          "state": "clear"
+        }
+      ],
+      "planning": {
+        "meters": []
+      },
+      "profiles": {
+        "names": [],
+        "active": null,
+        "modified": false
+      },
+      "actions": [
+        {
+          "op": "pause",
+          "provider": "codex",
+          "params": {
+            "duration": "1h"
+          },
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_8bad0251033d",
+          "expiresAtMs": 1900003620000
+        },
+        {
+          "op": "pause",
+          "provider": "codex",
+          "params": {
+            "duration": null
+          },
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_7093308da3d1",
+          "expiresAtMs": null
+        },
+        {
+          "op": "protection.test",
+          "provider": "codex",
+          "params": {},
+          "eligible": true,
+          "disabledReason": null,
+          "actionToken": "tok_fixture_3c30de4cc207",
+          "expiresAtMs": null
+        }
+      ],
+      "recap": null
+    }
+  ],
+  "settings": {
+    "preferences": {
+      "mascots": true,
+      "weekly": true,
+      "warnings": true,
+      "pauses": true,
+      "resets": false,
+      "unused": false,
+      "agents": false
+    },
+    "display": "usage",
+    "weeklyStyle": "bar",
+    "displayStyle": "usage",
+    "actions": [
+      {
+        "op": "preference.set",
+        "params": {
+          "name": "mascots",
+          "value": false
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_0da5a7ff8651",
+        "expiresAtMs": null
+      },
+      {
+        "op": "preference.set",
+        "params": {
+          "name": "weekly",
+          "value": false
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_4fbf3d63e21b",
+        "expiresAtMs": null
+      },
+      {
+        "op": "preference.set",
+        "params": {
+          "name": "warnings",
+          "value": false
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_df35fd0757c1",
+        "expiresAtMs": null
+      },
+      {
+        "op": "preference.set",
+        "params": {
+          "name": "pauses",
+          "value": false
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_7535858a9d13",
+        "expiresAtMs": null
+      },
+      {
+        "op": "preference.set",
+        "params": {
+          "name": "resets",
+          "value": true
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_a27258aef9ff",
+        "expiresAtMs": null
+      },
+      {
+        "op": "preference.set",
+        "params": {
+          "name": "unused",
+          "value": true
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_ec1a12345b29",
+        "expiresAtMs": null
+      },
+      {
+        "op": "preference.set",
+        "params": {
+          "name": "agents",
+          "value": true
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_47daba0a7c70",
+        "expiresAtMs": null
+      },
+      {
+        "op": "display.set",
+        "params": {
+          "value": "pear"
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_2576ed1d5da3",
+        "expiresAtMs": null
+      },
+      {
+        "op": "weeklyStyle.set",
+        "params": {
+          "value": "text"
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_53adb1dd9ba0",
+        "expiresAtMs": null
+      },
+      {
+        "op": "weeklyStyle.set",
+        "params": {
+          "value": "off"
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_c95bd52cd679",
+        "expiresAtMs": null
+      },
+      {
+        "op": "displayStyle.set",
+        "params": {
+          "value": "pear"
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_a004f0081439",
+        "expiresAtMs": null
+      },
+      {
+        "op": "displayStyle.set",
+        "params": {
+          "value": "fill"
+        },
+        "eligible": true,
+        "disabledReason": null,
+        "actionToken": "tok_fixture_e1f20241c1e0",
+        "expiresAtMs": null
+      }
+    ]
+  },
+  "discovery": {
+    "links": [
+      {
+        "id": "passcontrol",
+        "title": "PassControl, by the maker of Peras",
+        "detail": "Controls beyond usage limits: free beta, optional, nothing connects on its own."
+      },
+      {
+        "id": "session_control",
+        "title": "Stop one agent, not all of them",
+        "detail": "Stop any agent from your phone's browser, mid-task, on a Pro or Max login too."
+      },
+      {
+        "id": "approvals",
+        "title": "Approve risky tools from your phone",
+        "detail": "A Telegram ping, and Approve or Deny from there, before a risky tool runs."
+      },
+      {
+        "id": "central_controls",
+        "title": "Every agent, every machine, one place",
+        "detail": "Stop, cap and get alerts for agents wherever they run."
+      },
+      {
+        "id": "credentials",
+        "title": "Keep API keys out of the agent",
+        "detail": "API keys and bot tokens kept in a vault, never in the agent."
+      },
+      {
+        "id": "api_budgets",
+        "title": "Cap API spend per agent",
+        "detail": "Daily or monthly caps per agent, for API keys. Separate from your plan's usage."
+      }
+    ],
+    "suggestion": null
+  }
+}

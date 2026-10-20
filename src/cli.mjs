@@ -1,3 +1,7 @@
+import { installRuntime } from "./runtime-install.mjs";
+import { resolveRuntimeEntry } from "./runtime-use.mjs";
+import crypto from "node:crypto";
+import { PolicyError, STRICT_MIN, claudeCodeVersion, failurePolicy, setFailurePolicy } from "./failure-policy.mjs";
 import { setPacing, readPlanning, dayNames, profileSummary, saveProfile, useProfile, deleteProfile, grantExtra, activeExtras, revokeExtra } from "./planning.mjs";
 import { sessionOverview, sessionsText } from "./sessions.mjs";
 import { parseBudget, setBudget, allowanceMeters, budgetText } from "./allowances.mjs";
@@ -22,6 +26,8 @@ import { codexEnv, inspectCodex, installCodex, removeCodex } from "./codex.mjs";
 import { snapshot, statusText, whyText, codexDoctor, terminalStatusline } from "./providers.mjs";
 import { preferences, setPreference } from "./preferences.mjs";
 import { hookHealth } from "./hook-health.mjs";
+import { launchFile, nodePath, writeLaunchRecord } from "./node-runtime.mjs";
+import * as nativeApp from "./native-app.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
@@ -32,6 +38,7 @@ const HELP = `Peras 🍐 ${VERSION}: stop Claude Code or Codex before it burns t
 
   peras setup                 add the hooks + status line to Claude Code (with a backup)
   peras update [--check]      update the CLI, installed hooks, and menu bar
+  peras update --app <Peras.app>   move to a new 0.x line together with its Peras app
   peras codex setup           add hooks for Codex desktop and CLI
   peras codex status          read Codex's ChatGPT plan usage
   peras codex statusline      compact ANSI usage readout (outside Codex's native footer)
@@ -71,10 +78,14 @@ const HELP = `Peras 🍐 ${VERSION}: stop Claude Code or Codex before it burns t
   peras events                recent warnings, pauses, resumes, and resets
   peras test                  test pause and resume on a throwaway copy of the hooks
   peras doctor                check that everything is wired up, hooks included
+  peras strict [on|off]       block Claude Code's tools when Peras can't check (needs Claude Code 2.1.295+)
+  peras agents [on|off]       tell each agent its own and the other agent's usage, when it changes
+  peras usage [--json]        both agents' usage in one line (or JSON), for an agent to read
 
   peras menubar               whether 🍐 is in the menu bar, and its commands
   peras menubar install       🍐 in the macOS menu bar (needs the free SwiftBar)
-  peras menubar display pear|usage    choose pear only, or icons and percentages
+  peras menubar install --native [--app <Peras.app>]   the Peras app (peras.vertias.eu/app) draws the 🍐 instead of SwiftBar (adds no hooks)
+  peras menubar display pear|usage|fill  pear only, icons and percentages, or a filling pear (app)
   peras menubar quit          quit the menu bar (protection keeps running)
   peras menubar open          open the menu bar again after quitting
   peras menubar preference mascots|weekly on|off
@@ -149,15 +160,12 @@ function onPath(name, env) {
     .some((dir) => dir && exts.some((ext) => fs.existsSync(path.join(dir, name + ext))));
 }
 
-/** The runtime goes to ~/.peras/app so the hooks never point into an npx cache. */
+/** Hooks keep their stable app/bin entrypoint; Node resolves it into one immutable runtime. */
 function copyRuntime(env) {
-  const app = path.join(perasHome(env), "app");
-  if (path.resolve(app) !== ROOT) {
-    fs.rmSync(app, { recursive: true, force: true });
-    fs.mkdirSync(app, { recursive: true, mode: 0o700 });
-    for (const part of ["bin", "src", "package.json"]) fs.cpSync(path.join(ROOT, part), path.join(app, part), { recursive: true });
-  }
-  return path.join(app, "bin", "peras.mjs");
+  const bin = installRuntime(env, ROOT);
+  // Patch updates keep the signed app: its launch record must describe the new runtime.
+  if (fs.existsSync(launchFile(env))) writeLaunchRecord(env, { cli: bin, runtimeVersion: VERSION });
+  return bin;
 }
 
 function hasPassControl(env) {
@@ -166,24 +174,6 @@ function hasPassControl(env) {
   } catch {
     return false;
   }
-}
-
-/**
- * The node on PATH when it is this same binary, else this binary's real path.
- * process.execPath resolves symlinks, and a version manager's real path moves
- * on the next upgrade, while the PATH entry stays put.
- */
-function nodePath(env) {
-  for (const dir of String(env.PATH ?? "").split(path.delimiter)) {
-    if (!dir) continue;
-    const candidate = path.join(dir, process.platform === "win32" ? "node.exe" : "node");
-    try {
-      if (fs.realpathSync(candidate) === fs.realpathSync(process.execPath)) return candidate;
-    } catch {
-      // Not here.
-    }
-  }
-  return process.execPath;
 }
 
 /**
@@ -230,7 +220,8 @@ function remove(env, out) {
   if (!others) {
     const plugin = menubar.remove(env);
     if (plugin) out(`The menu bar plugin is gone too (${tilde(plugin, env)}).`);
-    fs.rmSync(path.join(perasHome(env), "app"), { recursive: true, force: true });
+    // The native app starts its bridge from this runtime, hooks or not.
+    if (!fs.existsSync(launchFile(env))) fs.rmSync(path.join(perasHome(env), "app"), { recursive: true, force: true });
   }
   out(`Your lines and history stay in ${tilde(perasHome(env), env)}; delete that folder to forget them too.`);
   return 0;
@@ -541,16 +532,112 @@ function eventTime(at, now) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${resetTime(at / 1000, at)}`;
 }
 
-async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.quit, openMenubar = menubar.open, isTTY } = {}) {
+// What opens, quits and checks the Peras app; tests hand in their own, so no test reaches a real app.
+const APP = { launch: nativeApp.launchApp, quit: nativeApp.quitApp, running: nativeApp.appRunning, verify: nativeApp.verifyApp, quarantined: nativeApp.quarantined, clock: Date.now, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), timeoutMs: 20_000, firstOpenTimeoutMs: 180_000 };
+const ROLLBACK_NOTE = "Going back to Peras 0.3: `peras menubar quit` first, then `peras menubar install` once 0.3 is in place.";
+
+/**
+ * What's still between this machine and working protection, from what's on
+ * disk: hooks missing, Codex's trust, no tool call seen yet, no self-test.
+ */
+async function nextSteps(env, now) {
+  const steps = [];
+  const claude = hookHealth(env, "claude", now).label;
+  if (claude === "Setup missing") steps.push("Claude Code: `peras setup` adds the hooks.");
+  else if (claude === "Hooks disabled") steps.push('Claude Code: "disableAllHooks" is on in its settings, so nothing can be paused.');
+  else if (claude === "Needs activation") steps.push("Claude Code: restart it; its next tool call confirms protection.");
+  const scoped = codexEnv(env);
+  const hasCodex = Boolean(readInstall(scoped)) || fs.existsSync(env.CODEX_HOME || path.join(env.HOME || "", ".codex")) || onPath("codex", env);
+  const codex = hasCodex ? hookHealth(env, "codex", now).label : null;
+  if (codex === "Setup missing") steps.push("Codex: `peras codex setup` adds the hooks, then trust them in Codex's /hooks.");
+  else if (codex === "Hooks disabled") steps.push("Codex: hooks are turned off in its config.toml.");
+  else if (codex === "Needs trust / activation") steps.push("Codex: trust Peras in /hooks and restart open sessions; Codex skips hooks it hasn't trusted.");
+  const configured = [claude, codex].some((label) => label && label !== "Setup missing");
+  const { readProtectionTest } = await import("./protection-test.mjs");
+  if (configured && !readProtectionTest(env)?.passed) steps.push("`peras menubar test` checks the hooks in a throwaway folder; your agents keep running.");
+  return steps.length ? ["Next:", ...steps.map((step) => `  ${step}`)] : [];
+}
+
+/**
+ * Opens the app and waits for its bridge before SwiftBar's plugin goes. Any
+ * failure leaves SwiftBar's menu as it was and puts back the app it replaced.
+ */
+async function moveToNative(env, out, source, app) {
+  const bundle = nativeApp.appPath(env);
+  let installed = null;
+  if (source) {
+    installed = nativeApp.installApp(env, source, { verify: app.verify, downloaded: app.quarantined });
+    out(`Installed the Peras app in ${tilde(bundle, env)} (Gatekeeper: ${installed.gatekeeper}). Peras runs that copy, so you can delete ${tilde(path.resolve(source), env)}.`);
+  } else {
+    // An install interrupted before its hello: finish its swap, and keep the copy to fall back on.
+    nativeApp.recoverInstall(env);
+    installed = nativeApp.pendingInstall(env);
+    if (!nativeApp.appInstalled(env)) {
+      out("No Peras app to open yet. Get it at https://peras.vertias.eu/app (€4.99), or build it yourself: https://github.com/Vertias3u/Peras#build-the-app-yourself. Then run `peras menubar install --native --app ~/Downloads/Peras.app`. The SwiftBar menu stays free: `peras menubar install`.");
+      return 0;
+    }
+  }
+  // A downloaded app's first open waits on macOS asking the person; never wait that out with a short timer.
+  const firstOpen = await app.quarantined(bundle);
+  const failed = async (why) => {
+    try { await app.quit(bundle); } catch { /* already gone */ }
+    // Keep the exact quarantined copy for approval, but never leave it paired with the old CLI.
+    if (firstOpen && installed) {
+      const pending = path.join(path.dirname(bundle), `Peras-pending-${crypto.randomUUID()}.app`);
+      fs.renameSync(bundle, pending);
+      installed.restore();
+      return new Error(`${why} SwiftBar's menu stays as it was.${installed.replaced ? " The previous app is back." : ""} The downloaded copy is kept at ${pending}. If macOS asked about Peras, allow it in System Settings > Privacy & Security, then retry with \`peras menubar install --native --app "${pending}"\`.`);
+    }
+    installed?.restore();
+    return new Error(`${why} SwiftBar's menu stays as it was${installed?.replaced ? "; the app you had before is back" : ""}.`);
+  };
+  // A copy already open stays if its bridge runs this version. Otherwise it is the old build (or
+  // the old runtime): close it, so the one opened next starts its own bridge on this runtime.
+  let since = app.clock();
+  if (await app.running(bundle)) {
+    const current = !source && (await nativeApp.handshake(env, { sinceMs: 0, runtimeVersion: VERSION, timeoutMs: 0, clock: app.clock, sleep: app.sleep })).ok;
+    if (current) since = 0;
+    else {
+      const gone = async (tries) => { for (let i = 0; i < tries && await app.running(bundle); i++) await app.sleep(250); return !(await app.running(bundle)); };
+      await app.quit(bundle);
+      if (!(await gone(20))) { await app.quit(bundle, { force: true }); if (!(await gone(8))) throw await failed("The Peras app that was already open didn't quit."); }
+      since = app.clock();
+    }
+  }
+  if (firstOpen) out(`macOS may ask you to confirm opening Peras. Peras waits up to ${Math.round(app.firstOpenTimeoutMs / 60_000)} minutes.`);
+  try { await app.launch(bundle); } catch (error) { throw await failed(`The Peras app did not open (${error.message}).`); }
+  const hello = await nativeApp.handshake(env, { sinceMs: since, runtimeVersion: VERSION, timeoutMs: firstOpen ? app.firstOpenTimeoutMs : app.timeoutMs, clock: app.clock, sleep: app.sleep });
+  if (!hello.ok) throw await failed(`The Peras app didn't check in: ${hello.reason}.`);
+  nativeApp.confirmInstall(env);
+  const retired = nativeApp.retirePlugin(env);
+  if (retired.moved) out(`The app draws the 🍐 now. SwiftBar's plugin is kept in ${tilde(retired.moved, env)}; \`peras menubar install\` brings SwiftBar back.`);
+  else if (retired.kept) out(`The app is running. ${tilde(retired.kept, env)} isn't a plugin Peras wrote, so it stays: if it's a second 🍐, remove it yourself.`);
+  else out("The app draws the 🍐 now.");
+  out(ROLLBACK_NOTE);
+  return 0;
+}
+
+async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.quit, openMenubar = menubar.open, isTTY, nativeApp: app = APP } = {}) {
   const [sub, folder] = args;
   if (sub === "quit") {
     if (args.length !== 1) throw new Error("Use peras menubar quit");
+    if (nativeApp.liveMenu(env) === "native") {
+      try { await app.quit(nativeApp.appPath(env)); } catch {}
+      out("Quit the Peras app. Protection keeps running: the hooks don't need it. `peras menubar open` brings the 🍐 back.");
+      return 0;
+    }
     try { await quitMenubar(); } catch {}
     out("Quit the menu bar. Protection keeps running: the hooks don't need it. `peras menubar open` brings the 🍐 back.");
     return 0;
   }
   if (sub === "open") {
     if (args.length !== 1) throw new Error("Use peras menubar open");
+    nativeApp.recoverInstall(env);
+    if (nativeApp.liveMenu(env) === "native") {
+      try { await app.launch(nativeApp.appPath(env)); } catch (error) { throw new Error(`Could not open the Peras app (${error.message}).`); }
+      out("Opened the Peras app: the 🍐 is back in the menu bar.");
+      return 0;
+    }
     if (!menubar.installed(env)) throw new Error("🍐 is not in the menu bar yet: run `peras menubar install` first.");
     try {
       await openMenubar();
@@ -571,6 +658,23 @@ async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.qu
     out(`${args[1]}: ${args[2]}`);
     return 0;
   }
+  if (sub === "bridge") {
+    // The native app's backend: JSON lines on stdin/stdout, nothing else on stdout.
+    if (args.length !== 3 || args[1] !== "--protocol" || args[2] !== "1") throw new Error("This Peras speaks protocol 1: peras menubar bridge --protocol 1");
+    const { runBridge } = await import("./native-bridge.mjs");
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    const outputError = (error) => { if (error.code === "EPIPE") stop(); else throw error; };
+    process.once("SIGTERM", stop); process.once("SIGINT", stop);
+    process.stdout.on("error", outputError);
+    try {
+      await runBridge({ env, input: process.stdin, output: process.stdout, runtimeVersion: VERSION, reader, signal: controller.signal });
+    } finally {
+      process.removeListener("SIGTERM", stop); process.removeListener("SIGINT", stop);
+      process.stdout.removeListener("error", outputError);
+    }
+    return 0;
+  }
   if (sub === "stream") {
     const { streamMenubar } = await import("./menubar-stream.mjs");
     const controller = new AbortController();
@@ -587,11 +691,21 @@ async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.qu
     return 0;
   }
   if (sub === "display") {
-    if (args.length > 2) throw new Error("Choose pear or usage: peras menubar display pear|usage");
-    if (!folder) { out(`Menu bar display: ${menubar.displayMode(env)}`); return 0; }
-    const mode = menubar.setDisplayMode(env, folder);
-    out(`Menu bar display: ${mode === "pear" ? "pear only" : "pear + icons and 5-hour percentages"}. Refresh SwiftBar to see it.`);
+    if (args.length > 2) throw new Error("Choose pear, usage or fill: peras menubar display pear|usage|fill");
+    if (!folder) { out(`Menu bar display: ${menubar.displayStyle(env)}`); return 0; }
+    const mode = menubar.setDisplayStyle(env, folder);
+    out(`Menu bar display: ${mode === "fill" ? "a pear that fills with usage, in the Peras app (SwiftBar shows the pear alone)" : mode === "pear" ? "pear only" : "pear + icons and 5-hour percentages"}. Refresh SwiftBar to see it.`);
     return 0;
+  }
+  if (sub === "install" && folder === "--native") {
+    if (args.length !== 2 && !(args.length === 4 && args[2] === "--app")) throw new Error("Use peras menubar install --native [--app <path to Peras.app>]");
+    // The runtime and the app's launch record only: Claude Code and Codex are set up when you choose to.
+    const record = writeLaunchRecord(env, { cli: copyRuntime(env), runtimeVersion: VERSION });
+    out(`The Peras app will run ${tilde(record.cli, env)} with Node ${record.nodeVersion} (${tilde(record.node, env)}).`);
+    if (!readInstall(env) && !readInstall(codexEnv(env))) out("Nothing is set up in Claude Code or Codex yet: the app shows usage, and the hooks are what pause.");
+    const code = await moveToNative(env, out, args[3], app);
+    for (const line of await nextSteps(env, now)) out(line);
+    return code;
   }
   if (sub === "install") {
     const record = readInstall(env) ?? readInstall(codexEnv(env));
@@ -599,11 +713,22 @@ async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.qu
     const file = menubar.install(env, { command: record.command, folder });
     out(`🍐 is in the menu bar: ${tilde(file, env)}`);
     out("SwiftBar picks it up within a minute. `peras menubar remove` takes it out.");
+    // The way back from the app: one menu at a time.
+    if (nativeApp.appInstalled(env) && await app.running(nativeApp.appPath(env))) {
+      try { await app.quit(nativeApp.appPath(env)); out("Closed the Peras app: SwiftBar draws the 🍐 again."); } catch {}
+    }
     return 0;
   }
   if (sub === "remove") {
+    const bundle = nativeApp.appPath(env);
+    const hadApp = nativeApp.appInstalled(env);
+    if (hadApp) {
+      try { await app.quit(bundle); } catch {}
+      for (const dir of [bundle, `${bundle}.previous`, `${bundle}.new`]) fs.rmSync(dir, { recursive: true, force: true });
+      out(`Removed the Peras app from ${tilde(bundle, env)}.`);
+    }
     const file = menubar.remove(env);
-    out(file ? `Removed ${tilde(file, env)}.` : "No menu bar plugin of Peras's to remove.");
+    if (file || !hadApp) out(file ? `Removed ${tilde(file, env)}.` : "No menu bar plugin of Peras's to remove.");
     return 0;
   }
   if (sub && sub !== "show") throw new Error(`Did not understand "${sub}". Try: peras menubar install`);
@@ -639,8 +764,19 @@ function doctor(env, out, now) {
     const node = record.command?.match(/^"([^"]+)"/)?.[1];
     check(Boolean(node && fs.existsSync(node)), `node at ${node}`, `the node Peras was set up with is gone (${node}): run \`peras setup\` again`);
     check(Boolean(bin && fs.existsSync(bin)), "runtime in place", "the runtime copy is missing: run `peras setup` again");
-    if (record.version && record.version !== VERSION) out(`• hooks run Peras ${record.version}, this is ${VERSION}: run \`peras setup\` to update them`);
     if (record.statusLine?.command) out(`• chained in front of: ${record.statusLine.command}`);
+  }
+  const entry = record?.command?.match(/"([^"]+peras\.mjs)"/)?.[1] ?? path.join(perasHome(env), "app/bin/peras.mjs");
+  if (record || fs.existsSync(entry)) {
+    try {
+      const resolved = resolveRuntimeEntry(entry);
+      const runtime = JSON.parse(fs.readFileSync(path.join(path.dirname(path.dirname(resolved)), "package.json"), "utf8"));
+      if (runtime.name !== "peras-cli" || typeof runtime.version !== "string" || !runtime.version) throw Error("invalid package metadata");
+      out(`✓ runtime Peras ${runtime.version} at ${tilde(resolved, env)}`);
+      if (runtime.version !== VERSION) out(`• hooks run Peras ${runtime.version}, this is ${VERSION}: run \`peras setup\` to update them`);
+    } catch (error) {
+      check(false, "", `runtime version is unreadable (${error.message}): run \`peras setup\` again`);
+    }
   }
   let stored = null;
   try {
@@ -676,6 +812,19 @@ Free beta: ${PASSCONTROL}`);
 }
 
 function menubarSummary(env) {
+  if (nativeApp.liveMenu(env) === "native") {
+    return [
+      `🍐 is in the menu bar: the Peras app in ${tilde(nativeApp.appPath(env), env)}`,
+      "",
+      "`peras status` shows the same readings here.",
+      "  peras menubar quit          close the app (protection keeps running)",
+      "  peras menubar open          open it again",
+      "  peras menubar install       back to SwiftBar",
+      "  peras menubar remove        take the app out",
+      "",
+      ROLLBACK_NOTE,
+    ].join("\n");
+  }
   const file = menubar.installed(env);
   if (!file) return "🍐 is not in the menu bar yet. `peras menubar install` puts it there (needs the free SwiftBar).\n`peras status` shows the same readings here.";
   const running = menubar.swiftBarRunning();
@@ -685,7 +834,7 @@ function menubarSummary(env) {
     running === false ? "SwiftBar isn't running, so the menu is closed. `peras menubar open` brings it back." : `Display: ${display}.`,
     "",
     "`peras status` shows the same readings here.",
-    "  peras menubar display pear|usage",
+    "  peras menubar display pear|usage|fill",
     "  peras menubar preference mascots|weekly on|off",
     "  peras menubar quit          close the menu (protection keeps running)",
     "  peras menubar open          open it again",
@@ -698,7 +847,47 @@ function menubarSummary(env) {
 // after `npm i -g peras-cli@latest` they can be older than this CLI, and an older
 // hook reads newer lines wrongly: 0.1.1 took `prompt 3 pause` for "pause at 3% of
 // the week" and ignored `peras pause` (checked against the published 0.1.1).
-const WRITES = new Set(["set", "budget", "pace", "profile", "extra", "settings", "pause", "resume", "menubar"]);
+const WRITES = new Set(["set", "budget", "pace", "profile", "extra", "settings", "pause", "resume", "menubar", "strict"]);
+
+/** `peras strict [on|off]`: what Claude Code does when Peras can't answer a tool call. */
+function strictCommand(env, out, rest, claudeVersion) {
+  const [want, ...extra] = rest;
+  if (extra.length || ![undefined, "on", "off"].includes(want)) throw new Error("Use peras strict, peras strict on, or peras strict off");
+  if (want) {
+    try {
+      setFailurePolicy(env, want === "on" ? "strict" : "default", { version: want === "on" ? claudeVersion(env) : undefined });
+    } catch (error) {
+      if (!(error instanceof PolicyError)) throw error;
+      out(`✗ ${error.message} Nothing was changed.`);
+      return 1;
+    }
+  }
+  const policy = failurePolicy(env);
+  out(policy.mode === "strict"
+    ? "Strict mode is on: if Peras can't check a tool call (node moved, a broken file, a timeout), Claude Code blocks the tool instead of letting it run. Prompts you type still go through. Restart open sessions to pick it up."
+    : "Strict mode is off: if Peras can't check a tool call, the tool runs and you are told. A pause Peras has worked out always holds.");
+  if (policy.mode !== "strict") out(`  Turn on with: peras strict on (needs Claude Code ${STRICT_MIN} or later). Codex has no strict mode.`);
+  return 0;
+}
+
+function agentsCommand(env, out, rest) {
+  const [want, ...extra] = rest;
+  if (extra.length || ![undefined, "on", "off"].includes(want)) throw new Error("Use peras agents, peras agents on, or peras agents off");
+  if (want) setPreference(env, "agents", want);
+  out(preferences(env).agents
+    ? "Agents hear about usage: next to a prompt, Claude Code and Codex get one line with their own and the other's usage, only when a line is crossed, a window runs out or comes back, a reset is close or a reading goes stale. They are told facts, never what to do; pauses still do the stopping. The line goes into each agent's prompt, so each provider sees the other's usage numbers."
+    : "Agents don't hear about usage. Turn on with: peras agents on");
+  return 0;
+}
+
+async function usageCommand(env, out, now, rest) {
+  if (rest.length > 1 || (rest.length && rest[0] !== "--json")) throw new Error("Use peras usage or peras usage --json");
+  const { usageReport } = await import("./agent-context.mjs");
+  const report = usageReport(env, now);
+  if (rest[0] === "--json") out(JSON.stringify(report));
+  else out(report.note ?? "No usage reading yet. Readings arrive after Claude Code's next reply, or once Peras can read Codex's plan usage.");
+  return 0;
+}
 
 /** When the hooks run an older Peras than this CLI, bring them up to date first. */
 function refreshStaleHooks(env, out) {
@@ -713,9 +902,9 @@ function refreshStaleHooks(env, out) {
   out(`(Updated the hooks from Peras ${staleClaude ? claude : codex} to ${VERSION} first. Restart open sessions to pick them up.)`);
 }
 
-export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar, openMenubar, openSettingsURL, sendNotification = testNotification, isTTY = process.stdout.isTTY } = {}) {
+export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar, openMenubar, nativeApp: app, openSettingsURL, sendNotification = testNotification, isTTY = process.stdout.isTTY, claudeVersion = claudeCodeVersion } = {}) {
   const [command, ...rest] = args;
-  if ((WRITES.has(command) || (command === "codex" && ["set", "budget", "pace", "profile", "extra", "pause", "resume"].includes(rest[0]))) && !(command === "menubar" && (!rest[0] || ["show", "quit", "open"].includes(rest[0])))) {
+  if ((WRITES.has(command) || (command === "codex" && ["set", "budget", "pace", "profile", "extra", "pause", "resume"].includes(rest[0]))) && !(command === "menubar" && (!rest[0] || ["show", "quit", "open", "bridge"].includes(rest[0])))) {
     try {
       refreshStaleHooks(env, out);
     } catch (error) {
@@ -726,9 +915,10 @@ export async function main(args, { env = process.env, out = console.log, now = D
   try {
     switch (command) {
       case "update": {
-        if (rest.length > 1 || (rest[0] && rest[0] !== "--check")) throw new Error("Use peras update or peras update --check");
+        const withApp = rest.length === 2 && rest[0] === "--app";
+        if (!withApp && (rest.length > 1 || (rest[0] && rest[0] !== "--check"))) throw new Error("Use peras update, peras update --check, or peras update --app <path to Peras.app>");
         const { updateCLI } = await import("./update.mjs");
-        await updateCLI({ env, version: VERSION, root: ROOT, check: rest[0] === "--check", out });
+        await updateCLI({ env, version: VERSION, root: ROOT, check: rest[0] === "--check", app: withApp ? rest[1] : null, out });
         return 0;
       }
       case "events": {
@@ -820,9 +1010,11 @@ export async function main(args, { env = process.env, out = console.log, now = D
       case "history":
         return history(env, out, now);
       case "menubar":
-        return await doMenubar(env, out, now, rest, codexReader, { quitMenubar, openMenubar, isTTY });
+        return await doMenubar(env, out, now, rest, codexReader, { quitMenubar, openMenubar, isTTY, nativeApp: app });
       case "doctor":
         return doctor(env, out, now);
+      case "strict":
+        return strictCommand(env, out, rest, claudeVersion);
       case "notify":
         return await notifySettings(env, out, rest, sendNotification);
       case "test":
@@ -830,6 +1022,10 @@ export async function main(args, { env = process.env, out = console.log, now = D
         return await protectionTest(env, out, now, codexReader);
       case "connect":
         return connect(out);
+      case "agents":
+        return agentsCommand(env, out, rest);
+      case "usage":
+        return await usageCommand(env, out, now, rest);
       case "--version":
       case "-v":
       case "version":

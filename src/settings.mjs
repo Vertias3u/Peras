@@ -16,6 +16,11 @@ const OURS = /peras\.mjs"?\s+(hook|statusline)(\s+\|\|.*)?$/;
 const FIX = "Peras could not run (is node still where setup found it?): run peras setup again";
 const withFallback = (command, text) => (process.platform === "win32" ? command : `${command} || echo '${text}'`);
 const hookCommand = (command) => withFallback(`${command} hook`, JSON.stringify({ systemMessage: FIX }));
+// Strict mode (Claude Code 2.1.295+): the tool check alone blocks when it cannot
+// answer. The policy is in the hook itself, so nothing read at run time can turn
+// it off, and it ends in `hook`, so Peras 0.3 still knows it as its own.
+export const STRICT_PREFIX = "PERAS_STRICT=1 ";
+const strictHook = (command) => ({ type: "command", command: `${STRICT_PREFIX}${command} hook`, timeout: HOOK_TIMEOUT_S, onFailure: "block" });
 const statusCommand = (command) => withFallback(`${command} statusline`, `🍐 ${FIX}`);
 
 export const settingsPath = (env = process.env) => path.join(claudeDir(env), "settings.json");
@@ -48,11 +53,11 @@ function save(target, value) {
   fs.renameSync(tmp, target);
 }
 
-function ourGroups(command) {
+function ourGroups(command, policy = "default") {
   const hook = { type: "command", command: hookCommand(command), timeout: HOOK_TIMEOUT_S };
   return {
     UserPromptSubmit: { hooks: [hook] },
-    PreToolUse: { matcher: "*", hooks: [hook] },
+    PreToolUse: { matcher: "*", hooks: [policy === "strict" ? strictHook(command) : hook] },
     PostToolBatch: { hooks: [hook] },
   };
 }
@@ -79,8 +84,8 @@ function withoutOurHooks(hooks) {
   return next;
 }
 
-function withOurHooks(hooks, command) {
-  const ours = ourGroups(command);
+function withOurHooks(hooks, command, policy) {
+  const ours = ourGroups(command, policy);
   const base = isObject(hooks) ? hooks : {};
   const next = withoutOurHooks(base);
   for (const event of EVENTS) {
@@ -97,13 +102,16 @@ const hasPerasParts = (value) =>
   isPerasCommand(value.statusLine?.command) || (isObject(value.hooks) && Object.values(value.hooks).some((g) => Array.isArray(g) && g.some(hasOurHook)));
 
 /**
- * @param {{ env?: object, command: string, resumeHint?: string, version?: string }} options
+ * @param {{ env?: object, command: string, resumeHint?: string, version?: string, failurePolicy?: "default"|"strict", claudeVersion?: string }} options
  *   `command` runs Peras: `"<node>" "<home>/.peras/app/bin/peras.mjs"`.
+ *   Without `failurePolicy`, the installed one stays: a setup or update never turns strict off.
  */
-export function install({ env = process.env, command, resumeHint = "peras resume", version = "" }) {
+export function install({ env = process.env, command, resumeHint = "peras resume", version = "", failurePolicy, claudeVersion }) {
   const target = settingsPath(env);
   const { exists, value } = readSettings(target);
   const record = readInstall(env);
+  const policy = (failurePolicy ?? record?.failurePolicy) === "strict" && process.platform !== "win32" ? "strict" : "default";
+  claudeVersion ??= record?.claudeVersion;
 
   let original = record?.statusLine ?? null;
   let statusLine;
@@ -118,8 +126,8 @@ export function install({ env = process.env, command, resumeHint = "peras resume
     statusLine = { type: "command", command: statusCommand(command) };
   }
 
-  const next = { ...value, hooks: withOurHooks(value.hooks, command), statusLine };
-  writeInstall(env, { settingsPath: target, statusLine: original, command, resumeHint, version });
+  const next = { ...value, hooks: withOurHooks(value.hooks, command, policy), statusLine };
+  writeInstall(env, { settingsPath: target, statusLine: original, command, resumeHint, version, failurePolicy: policy, ...(claudeVersion ? { claudeVersion } : {}) });
 
   // The file as it was before this round of Peras, kept once: a second setup
   // must not back up its own output over the user's original.
@@ -178,5 +186,7 @@ export function inspect(env = process.env) {
     missingEvents: EVENTS.filter((e) => !events.includes(e)),
     statusLine: isPerasCommand(value.statusLine?.command),
     hooksDisabled: value.disableAllHooks === true,
+    // Active only as written: the tool check carries the strict marker and blocks on failure.
+    strict: Array.isArray(value.hooks?.PreToolUse) && value.hooks.PreToolUse.some((g) => isObject(g) && Array.isArray(g.hooks) && g.hooks.some((h) => isOurHook(h) && h.onFailure === "block" && h.command.startsWith(STRICT_PREFIX))),
   };
 }

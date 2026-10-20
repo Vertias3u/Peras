@@ -1,0 +1,8 @@
+{
+  "valid": true,
+  "forgeryRejected": true,
+  "crossBridgeRejected": true,
+  "crossProviderRejected": true,
+  "modifiedImpactRejected": true,
+  "expiredRejected": true
+}

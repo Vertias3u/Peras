@@ -6,6 +6,7 @@ import { readUsage } from "./usage.mjs";
 import { recordHookRun } from "./hook-health.mjs";
 import { preferences } from "./preferences.mjs";
 import { recordEvent } from "./events.mjs";
+import { recordDenial } from "./receipts.mjs";
 
 // One command hook on three events (the same three PassControl gates):
 //   UserPromptSubmit  a prompt the user typed      → goes through; a notice if paused (D2)
@@ -83,13 +84,18 @@ const hasKind = (rules, kind) => rules.some((r) => r.kind === kind);
  * @param {{ input: object, env?: object, now?: number, notify?: (title: string, body: string) => void }} options
  * @returns {object | null} the hook's JSON answer, or null for "go ahead, say nothing"
  */
-export function runHook({ input, env = process.env, now = Date.now(), notify = () => {} }) {
+export function runHook({ input, env = process.env, now = Date.now(), notify = () => {}, strict = false }) {
   const event = input?.hook_event_name;
-  let state = readState(env, now);
+  // Strict (installed on the tool check only): a failure with no answer yet is thrown, for bin to block on.
+  let state = readState(env, now, { strict });
+  // A pause or ask, once worked out, is the answer: nothing after it (bookkeeping,
+  // events, notifications) can turn it into "go ahead".
+  let decided = null;
   try {
     const session = String(input?.session_id ?? "");
     const cwd = typeof input?.cwd === "string" ? input.cwd : null;
-    touchAllowanceSession(env, session, cwd, now);
+    // Only allowance bookkeeping: failing to note the session must not cost the check.
+    try { touchAllowanceSession(env, session, cwd, now); } catch { /* noted next call */ }
     const ctx = context(env, { now, cwd, session, state, usage: readUsage(env) });
     let changed = false;
     if (session && cwd) {
@@ -109,6 +115,15 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
     }
 
     const { action, hit, hits } = evaluate(ctx);
+    const d = action === "none" ? null : describe(hit, now);
+    let resumeHint = "peras resume";
+    try { resumeHint = readInstall(env)?.resumeHint || resumeHint; } catch { /* the default hint */ }
+    const askNow = action === "ask" && event === "PreToolUse" && !(state.asked[session] ?? []).includes(hit.key);
+    if (action === "pause" && (event === "PreToolUse" || event === "PostToolBatch")) decided = pauseFor(event, d, resumeHint);
+    // Only a denied tool call is a receipt; an ask can still be approved.
+    if (action === "pause" && event === "PreToolUse") recordDenial(env, hit, now);
+    else if (action === "pause" && event === "UserPromptSubmit") decided = { systemMessage: `Peras: tool use is paused (${d.short}). Your message goes through, but tools stay paused. ${d.lifts}, or type: ! ${resumeHint}` };
+    else if (askNow) decided = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `Peras: ${d.what}. Let Claude keep using tools? Peras asks once per session.` } };
     recordHookRun(env, event, now);
     const latched = hits.filter((h) => h.kind === "pace").map((h) => h.key);
     if (latched.join() !== state.latched.join()) {
@@ -120,12 +135,10 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
       return null;
     }
 
-    const d = describe(hit, now);
-    const resumeHint = readInstall(env)?.resumeHint || "peras resume";
     const lines = [];
     const notificationLines = [];
     const notificationPreferences = preferences(env);
-    let out = null;
+    let out = decided;
 
     // Every line crossed is told once, and lines crossed together in one notification.
     for (const h of hits) {
@@ -141,32 +154,15 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
       if (notificationPreferences[h.action === "pause" ? "pauses" : "warnings"]) notificationLines.push(text);
     }
 
-    if (action === "pause") {
-      if (event === "PreToolUse" || event === "PostToolBatch") out = pauseFor(event, d, resumeHint);
-      if (event === "UserPromptSubmit") {
-        out = {
-          systemMessage: `Peras: tool use is paused (${d.short}). Your message goes through, but tools stay paused. ${d.lifts}, or type: ! ${resumeHint}`,
-        };
-      }
-    } else if (action === "ask" && event === "PreToolUse") {
+    if (askNow) {
       // D9: once per session per line. Turning the prompt down ends the turn,
       // so a later tool call in the same session means the user is there.
-      const asked = state.asked[session] ?? [];
-      if (!asked.includes(hit.key)) {
-        state.asked[session] = [...asked, hit.key];
-        changed = true;
-        const text = `Claude Code is waiting for your OK: ${d.short}.`;
-        recordEvent(env, { kind: "approval", at: now, message: text });
-        lines.unshift(text);
-        if (notificationPreferences.pauses) notificationLines.unshift(text);
-        out = {
-          hookSpecificOutput: {
-            hookEventName: "PreToolUse",
-            permissionDecision: "ask",
-            permissionDecisionReason: `Peras: ${d.what}. Let Claude keep using tools? Peras asks once per session.`,
-          },
-        };
-      }
+      state.asked[session] = [...(state.asked[session] ?? []), hit.key];
+      changed = true;
+      const text = `Claude Code is waiting for your OK: ${d.short}.`;
+      lines.unshift(text);
+      if (notificationPreferences.pauses) notificationLines.unshift(text);
+      recordEvent(env, { kind: "approval", at: now, message: text });
     }
     if (!out && lines.length) out = { systemMessage: `Peras: ${lines.join(" ")}` };
     if (notificationLines.length) notify("Peras 🍐", notificationLines.join("\n"), { env, provider: "claude", category: action === "pause" || action === "ask" ? "pause" : "status", pauseKeys: resumableKeys(ctx, state) });
@@ -174,6 +170,8 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
     if (changed) writeHookState(env, state, now);
     return out;
   } catch (error) {
+    if (decided) return decided;
+    if (strict) throw error;
     // D3: fail open, loudly, but at most once a minute.
     if (now - state.failWarnAt < FAIL_WARN_EVERY_MS) return null;
     try {

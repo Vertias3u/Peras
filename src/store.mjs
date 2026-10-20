@@ -7,6 +7,7 @@ import { mergeWindow, liveWindow, resetTime } from "./window.mjs";
 import { DEFAULT_RULES, evaluate, normalizeRules } from "./rules.mjs";
 import { forecasts, readUsage } from "./usage.mjs";
 import { recordEvent } from "./events.mjs";
+import { withControlLock } from "./control-lock.mjs";
 
 // Everything Peras keeps lives under ~/.peras (PERAS_HOME). The window, the
 // state and the install record are kept per Claude config dir, because each
@@ -26,6 +27,14 @@ export function dirKey(env) {
 
 export const windowFile = (env) => path.join(perasHome(env), "windows", `${dirKey(env)}.json`);
 export const stateFile = (env) => path.join(perasHome(env), "state", `${dirKey(env)}.json`);
+/**
+ * What hooks remember (sessions, prompts, what was said and asked). Since v0.4 it
+ * has its own file, so a hook never writes the file that holds your pause and
+ * resumes. state/ keeps those where 0.3 reads them, for rollback.
+ */
+export const hookMemoryFile = (env) => path.join(perasHome(env), "hook-memory", `${dirKey(env)}.json`);
+/** An install record with this says its hooks write hookMemoryFile, never state/. */
+export const HOOK_MEMORY = 1;
 export const installFile = (env) => path.join(perasHome(env), "install", `${dirKey(env)}.json`);
 export const configFile = (env) => path.join(perasHome(env), env.PERAS_PROVIDER === "codex" ? "codex-config.json" : "config.json");
 
@@ -102,13 +111,25 @@ const recent = (obj, max) => (obj && typeof obj === "object" && !Array.isArray(o
  * What Peras remembers between hook calls. 0.1 files load as they are: a resume
  * there was a bare key string, and its notified keys keep their meaning.
  */
-export function readState(env, now = Date.now()) {
-  let raw = null;
+const mtime = (file) => fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+// Before a v0.4 hook first runs, its memory is still in state/ with the controls.
+// After a rollback, 0.3 keeps writing memory there (and drops the mark v0.4's
+// control writers leave): state/ newer than hook memory and unmarked is the newer memory.
+const memoryInState = (env, controls) => Boolean(controls) && controls.hookMemory !== HOOK_MEMORY && mtime(stateFile(env)) > mtime(hookMemoryFile(env));
+
+/** With `strict`, a pause/resume file that exists but can't be read is an error, not an empty state. */
+export function readState(env, now = Date.now(), { strict = false } = {}) {
+  let controls = null, memory = null;
   try {
-    raw = readJson(stateFile(env));
-  } catch {
+    controls = readJson(stateFile(env));
+  } catch (error) {
     // State is only memory of what was already said; losing it repeats a message.
+    // But it also holds your pause: strict mode won't guess that there is none.
+    if (strict) throw Object.assign(new Error("Peras could not read your pause and resume state."), { code: "state_unreadable" });
   }
+  try { memory = readJson(hookMemoryFile(env)); } catch { /* as above */ }
+  if (memory && memoryInState(env, controls)) memory = null;
+  const raw = { ...(memory ?? controls), manualPause: controls?.manualPause, resumed: controls?.resumed };
   const keys = (list) => (Array.isArray(list) ? list.filter((k) => typeof k === "string" && keyAlive(k, now)) : []);
   const asked = {};
   for (const [session, list] of recent(raw?.asked, MAX_SESSIONS)) {
@@ -145,13 +166,18 @@ export function writeState(env, state) {
 }
 
 /**
- * A hook's write. Hooks keep their own memory (sessions, prompts, what was said),
- * never your pause or resume, so those come from the file as it is now: a
- * `peras pause` or `resume` that landed while the hook ran is not written over.
+ * A hook's write: only its own memory (sessions, prompts, what was said), in its
+ * own file. Your pause and resumes live in state/, which only the locked control
+ * writers write, so a hook can never write an older copy of them back.
  */
 export function writeHookState(env, state, now = Date.now()) {
-  const current = readState(env, now);
-  writeState(env, { ...state, manualPause: current.manualPause, resumed: current.resumed });
+  const file = hookMemoryFile(env);
+  // The first write moves hook memory out of state/: keep a copy of state/ as it was, once.
+  if (!fs.existsSync(file)) {
+    try { fs.copyFileSync(stateFile(env), stateFile(env).replace(/\.json$/, ".before-v04.json"), fs.constants.COPYFILE_EXCL); } catch { /* none yet, or already kept */ }
+  }
+  const { notified, asked, prompts, sessions, latched, failWarnAt } = state;
+  writeJsonAtomic(file, { notified, asked, prompts, sessions, latched, failWarnAt });
 }
 
 export function readInstall(env) {
@@ -163,7 +189,7 @@ export function readInstall(env) {
 }
 
 export function writeInstall(env, record) {
-  writeJsonAtomic(installFile(env), record);
+  writeJsonAtomic(installFile(env), { ...record, hookMemory: HOOK_MEMORY });
 }
 
 /** The rules engine's view of the moment: the live window plus what Peras remembers. */
@@ -223,29 +249,80 @@ export function resume(env, { now = Date.now(), forMs = null, cwd = null } = {})
     // A manual pause can always be cleared, even when usage cannot be evaluated.
     issue = error.message;
   }
+  const plan = planResume(state, ctx, { now, forMs });
+  commitResume(env, plan, { now, forMs });
+  return { lifted: plan.lifted, manual: plan.manual, until: plan.until, issue };
+}
+
+/**
+ * What a resume would do now, without doing it: the stops it lifts, the earlier
+ * lifts whose expiry it replaces and the manual pause it clears.
+ * `ctx` may be null when usage cannot be evaluated: then only the manual pause clears.
+ */
+export function planResume(state, ctx, { now = Date.now(), forMs = null } = {}) {
   // Re-evaluate lifted rules too, so another resume can replace their expiry.
   const hits = ctx ? sessionVerdict({ ...ctx, resumed: [] }, state).hits.filter((h) => h.action !== "warn" && h.kind !== "manual") : [];
   const lifted = [...new Map(hits.map((h) => [h.key, h])).values()];
   const until = forMs !== null ? wholeMinute(now + forMs) : null;
-  const manual = state.manualPause;
-  state.resumed = [...state.resumed.filter((r) => !lifted.some((h) => h.key === r.key)), ...lifted.map((h) => ({ key: h.key, ...(until ? { until } : {}) }))];
-  state.manualPause = null;
-  if (lifted.length || manual) {
-    writeState(env, state);
-    recordEvent(env, { kind: "resume", at: now, message: until ? `Resumed for ${Math.round(forMs / 60_000)} minutes, until ${resetTime(until / 1000, now)}.` : "Resumed by you.", });
-  }
-  return { lifted, manual, until, issue };
+  const replaced = state.resumed.filter((r) => lifted.some((h) => h.key === r.key));
+  return { lifted, replaced, manual: state.manualPause, until };
+}
+
+export class ControlsChanged extends Error {
+  constructor() { super("Your pause or resume changed since this was reviewed."); this.code = "state_changed"; }
+}
+const samePause = (a, b) => (a?.since ?? null) === (b?.since ?? null) && (a?.until ?? null) === (b?.until ?? null);
+const lifts = (resumed, plan) => resumed.filter((r) => plan.lifted.some((h) => h.key === r.key)).map((r) => [r.key, r.until ?? null]).sort().join();
+
+/** Re-reads the state under the control lock, so control writers apply one at a time to the latest controls. */
+function changeControls(env, now, fn) {
+  return withControlLock(stateFile(env), () => {
+    let controls = null;
+    try { controls = readJson(stateFile(env)); } catch { /* readState decides */ }
+    const state = readState(env, now);
+    const result = fn(state);
+    if (result !== false) {
+      // The mark makes hook memory lead again, so newer memory still in state/ moves there first.
+      if (fs.existsSync(hookMemoryFile(env)) && memoryInState(env, controls)) writeHookState(env, state, now);
+      writeState(env, { ...state, hookMemory: HOOK_MEMORY });
+    }
+    return result;
+  });
+}
+
+/**
+ * Saves a plan from planResume, when it changes anything. Under the lock it
+ * re-checks what the plan was made from: with `reviewed`, the pause and the
+ * earlier lifts it replaces must still be the ones reviewed (else ControlsChanged).
+ * The lifts are applied to the controls as they are now.
+ */
+export function commitResume(env, plan, { now = Date.now(), forMs = null, reviewed = false } = {}) {
+  if (!plan.lifted.length && !plan.manual) return false;
+  changeControls(env, now, (state) => {
+    if (reviewed && (!samePause(state.manualPause, plan.manual) || lifts(state.resumed, plan) !== lifts(plan.replaced, plan))) throw new ControlsChanged();
+    state.resumed = [...state.resumed.filter((r) => !plan.lifted.some((h) => h.key === r.key)), ...plan.lifted.map((h) => ({ key: h.key, ...(plan.until ? { until: plan.until } : {}) }))];
+    state.manualPause = null;
+  });
+  recordEvent(env, { kind: "resume", at: now, // Clearing only your own pause is not timed, whatever duration was asked for.
+    message: plan.until && plan.lifted.length ? `Resumed for ${Math.round(forMs / 60_000)} minutes, until ${resetTime(plan.until / 1000, now)}.` : "Resumed by you.", });
+  return true;
 }
 
 /** Timed pauses and resumes end on a whole minute, so "until 03:05" means 03:05:00. */
 export const wholeMinute = (ms) => Math.ceil(ms / 60_000) * 60_000;
 
-/** Pause by hand, under every line: until `until` (ms), or until `peras resume`. */
-export function pauseNow(env, { now = Date.now(), until = null } = {}) {
-  const state = readState(env, now);
+/**
+ * Pause by hand, under every line: until `until` (ms), or until `peras resume`.
+ * With `reviewed` (the pause that was there when this was offered, or null), a
+ * different pause found under the lock means someone acted since: ControlsChanged.
+ */
+export function pauseNow(env, { now = Date.now(), until = null, reviewed } = {}) {
   if (until) until = wholeMinute(until);
-  state.manualPause = { since: now, until };
-  writeState(env, state);
+  const manualPause = changeControls(env, now, (state) => {
+    if (reviewed !== undefined && !samePause(state.manualPause, reviewed)) throw new ControlsChanged();
+    state.manualPause = { since: now, until };
+    return state.manualPause;
+  });
   recordEvent(env, { kind: "pause", at: now, message: until ? `Paused by you until ${resetTime(until / 1000, now)}.` : "Paused by you until resume." });
-  return state.manualPause;
+  return manualPause;
 }

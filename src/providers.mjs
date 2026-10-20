@@ -31,7 +31,8 @@ export function freshness(window, now) {
   return { age, text: `Updated ${ago} ago${age > 5 * 60_000 ? " · older reading" : ""}` };
 }
 
-export async function snapshot(env, now, { provider = "claude", refresh = false, reader, force = false, adaptive = false } = {}) {
+/** `cwd` is the folder project lines are judged from; null judges only global lines and observed sessions. */
+export async function snapshot(env, now, { provider = "claude", refresh = false, reader, force = false, adaptive = false, cwd = process.cwd() } = {}) {
   const scoped = provider === "codex" ? codexEnv(env) : env;
   const label = provider === "codex" ? "Codex" : "Claude Code";
   let error = null;
@@ -43,10 +44,10 @@ export async function snapshot(env, now, { provider = "claude", refresh = false,
   const state = readState(scoped, now);
   const usage = readUsage(scoped);
   let ctx;
-  try { ctx = context(scoped, { now, cwd: process.cwd(), state, usage }); }
+  try { ctx = context(scoped, { now, cwd, state, usage }); }
   catch (e) {
     error = e.message;
-    ctx = { window: {}, rules: [], now, cwd: process.cwd(), manualPause: state.manualPause, forecast: {}, resumed: state.resumed };
+    ctx = { window: {}, rules: [], now, cwd, manualPause: state.manualPause, forecast: {}, resumed: state.resumed };
   }
   const verdict = sessionVerdict(ctx, state);
   const reading = freshness(Object.keys(ctx.window).length ? ctx.window : stored, now);

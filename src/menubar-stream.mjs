@@ -2,16 +2,17 @@ import { setTimeout as delay } from "node:timers/promises";
 import { once } from "node:events";
 import { renderCombined } from "./menubar.mjs";
 import { writeStatusPage } from "./status-page.mjs";
-import { checkUnusedReminders } from "./unused-reminders.mjs";
-import { checkResets } from "./reset-notifications.mjs";
+import { monitorId, releaseMonitor, runMonitor } from "./monitor.mjs";
 
 /** SwiftBar's stream protocol: complete menus followed by ~~~, eight times a second. */
-export async function streamMenubar({ env, getSnapshots, write = (text) => process.stdout.write(text), signal, clock = Date.now, frames = Infinity, intervalMs = 125 }) {
+export async function streamMenubar({ env, getSnapshots, write = (text) => process.stdout.write(text), signal, clock = Date.now, frames = Infinity, intervalMs = 125, notify }) {
+  // Reminders come from here only while no native app's bridge holds the monitor lease.
+  const id = monitorId();
+  const monitor = (snapshots, now) => runMonitor(env, snapshots, now, { id, owner: "swiftbar", notify });
   let snapshots = await getSnapshots();
   const started = clock();
   writeStatusPage(env, snapshots, started);
-  checkResets(env, snapshots, started);
-  checkUnusedReminders(env, snapshots, started);
+  monitor(snapshots, started);
   let lastSnapshot = started, pending = null;
   let outputCount = 0, lastMenu = null;
   try {
@@ -21,7 +22,7 @@ export async function streamMenubar({ env, getSnapshots, write = (text) => proce
       // Fetch in the background so a slow/offline app-server cannot stall animation.
       if (now - lastSnapshot >= 1000 && !pending) {
         lastSnapshot = now;
-        pending = Promise.resolve().then(getSnapshots).then((next) => { snapshots = next; writeStatusPage(env, snapshots, clock()); checkResets(env, snapshots, clock()); checkUnusedReminders(env, snapshots, clock()); }).catch(() => {}).finally(() => { pending = null; });
+        pending = Promise.resolve().then(getSnapshots).then((next) => { snapshots = next; writeStatusPage(env, snapshots, clock()); monitor(snapshots, clock()); }).catch(() => {}).finally(() => { pending = null; });
       }
       const menu = renderCombined({ snapshots, env, now, animationTime: now - started });
       // An unchanged menu (mascots paused or hidden, nothing new) is not sent again:
@@ -39,5 +40,6 @@ export async function streamMenubar({ env, getSnapshots, write = (text) => proce
     if (error.name !== "AbortError") throw error;
   } finally {
     if (pending) await pending;
+    releaseMonitor(env, id);
   }
 }

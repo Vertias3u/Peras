@@ -15,6 +15,11 @@ export function recordEvent(env, { kind, message, provider = env.PERAS_PROVIDER 
     fs.appendFileSync(target, `${JSON.stringify({ at, provider, kind, message: String(message).slice(0, 1000) })}\n`, { mode: 0o600 });
   } catch { /* History must never prevent pause enforcement. */ }
 }
+/** Since when the kept history is whole: 0 before the first rotation, then the oldest kept event. */
+export function eventsCoverSince(env, rows = recentEvents(env, Infinity)) {
+  if (!fs.existsSync(`${file(env)}.previous`)) return 0;
+  return rows.length ? rows.at(-1).at : Infinity;
+}
 export function recentEvents(env, limit = 50) {
   const rows = [];
   for (const target of [`${file(env)}.previous`, file(env)]) {

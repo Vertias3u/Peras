@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 (2026-10-20)
+
+- **The Peras app.** A menu bar app replaces the SwiftBar menu, so SwiftBar is no longer needed. It costs €4.99 at [peras.vertias.eu/app](https://peras.vertias.eu/app), signed and notarized; the CLI, hooks and SwiftBar menu stay free, and the app's source is MIT like the rest: `npm run build:app` builds it yourself. Open `Peras.zip`, then run `peras menubar install --native --app ~/Downloads/Peras.app`. It checks the app, opens it, and moves Peras's SwiftBar plugin aside only once the app answers; if anything fails, SwiftBar's menu stays as it was. Hooks and the CLI work as before, and `peras menubar install` still gives the SwiftBar menu. Built for macOS 13 or later on Apple silicon and Intel; tested on Apple silicon with the current macOS.
+  - One row per agent: the 5-hour bar with its reset time, the weekly bar (or text) with a pace mark, and a ⏸ per running agent (right-click for Pause for 1 Hour). A reading older than five minutes fades.
+  - Pause cards say why in plain words. A stop from a rule offers Resume for 1 Hour; your own pause offers plain Resume.
+  - The menu bar shows the pixel pear, the pear with each agent's usage, or a pear that fills with usage: `peras menubar display pear|usage|fill`.
+  - ⌃⌥P opens the menu from anywhere, including over full-screen apps. Pin it to keep it open as a panel.
+  - Settings, a five-step setup with a protection test, and a weekly recap with a private-by-default share image: usage numbers go in only if you choose, and account details, folders and prompts never do.
+  - Opens at login (switch it off in Settings). Works with the keyboard and VoiceOver.
+  - Going back to 0.3: stop current agent sessions, run `peras menubar quit`, install 0.3.2, run `peras setup` and/or `peras codex setup` for the providers you use, then `peras menubar install`. Start new sessions with a new prompt and check `peras why`. Manual pauses and saved resumes stay compatible; 0.4 hook memory (prompt baselines, recent sessions and pace latches) is not exported. The app takes itself out of your login items.
+- Updates to the app are included in the purchase. `peras update` stays on the installed app's 0.x line; `peras update --app ~/Downloads/Peras.app` moves the CLI and the app to a new line together. If a step fails, it restores the prior CLI, app and hook settings from a local backup rather than fetching an older version from npm. A downloaded app that fails its first open is kept aside for retry, with the previous app restored. The menu shows **Newer Peras App Available…** when a newer app is out for your line, and opens your purchase downloads.
+- `peras agents on` tells Claude Code and Codex, beside your prompt, how much of both agents' usage is gone: on a session's first prompt, then only when usage crosses 50, 75, 90 or 100%, a reset is within 30 minutes, or the reading is over 15 minutes old. `peras usage` (or `--json`) prints the same on request.
+- Usage reminders come from one place, the app or SwiftBar, never both.
+- An Extra granted late in the day ends at midnight or at the weekly reset, whichever comes first.
+- `peras setup` installs the new Peras completely before switching the hooks to it, so a hook always runs one whole version, even if setup is interrupted. Old copies are removed after a week once nothing uses them, and `peras doctor` shows which version the hooks run.
+
 ## 0.3.2 (2026-10-18)
 
 - The menu uses about half the CPU it did. It was re-encoding every image in the menu eight times a second; images that don't change between frames are now encoded once, and a menu that hasn't changed (mascots paused or hidden) isn't sent to SwiftBar again. Walking mascots look exactly as before.

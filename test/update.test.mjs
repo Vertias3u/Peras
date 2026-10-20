@@ -10,6 +10,7 @@ import { codexEnv } from "../src/codex.mjs";
 import { readInstall, readRules, pauseNow, readState } from "../src/store.mjs";
 import { installed, setDisplayMode, displayMode } from "../src/menubar.mjs";
 import { setPreference, preferences } from "../src/preferences.mjs";
+import { appPath } from "../src/native-app.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 // The registry's "latest" is this checkout's version, so a version bump needs no test edits.
@@ -24,16 +25,20 @@ function fixture(latest = VERSION) {
   box.env.PERAS_SWIFTBAR_DIR = path.join(box.root, "swiftbar");
   const modules = path.join(box.root, "global modules"), globalRoot = path.join(modules, "peras-cli");
   const calls = [], messages = [];
-  const installRelease = () => {
-    fs.mkdirSync(globalRoot, { recursive: true });
-    for (const name of ["bin", "src"]) fs.cpSync(path.join(ROOT, name), path.join(globalRoot, name), { recursive: true, filter: source => !source.endsWith(".sh") && !source.endsWith(".swiftbarignore") });
-    fs.writeFileSync(path.join(globalRoot, "package.json"), JSON.stringify({ name: "peras-cli", version: latest, type: "module" }));
+  const installRelease = (destination = globalRoot) => {
+    fs.mkdirSync(destination, { recursive: true });
+    for (const name of ["bin", "src"]) fs.cpSync(path.join(ROOT, name), path.join(destination, name), { recursive: true, filter: source => !source.endsWith(".sh") && !source.endsWith(".swiftbarignore") });
+    fs.writeFileSync(path.join(destination, "package.json"), JSON.stringify({ name: "peras-cli", version: latest, type: "module" }));
   };
   const run = async (command, args, options) => {
     calls.push({ command, args });
     if (args[0] === "view") return { stdout: JSON.stringify(latest) };
     if (args[0] === "root") return { stdout: `${modules}\n` };
-    if (args[0] === "install") { installRelease(); return { stdout: "installed" }; }
+    if (args[0] === "install") {
+      const i = args.indexOf("--prefix");
+      installRelease(i < 0 ? globalRoot : path.join(args[i + 1], process.platform === "win32" ? "node_modules" : "lib/node_modules", "peras-cli"));
+      return { stdout: "installed" };
+    }
     return runUpdateCommand(command, args, options);
   };
   const invoke = (extra = {}) => updateCLI({ env: box.env, version: "0.2.0", root: ROOT, run, out: text => messages.push(text), ...extra });
@@ -146,4 +151,77 @@ test("failed registry checks and failed installations stop before integration re
     return f.run(command, args, options);
   } }), /refresh was not attempted/);
   assert.deepEqual(calls, ["view", "root", "install"]);
+});
+
+// The Peras app runs only a CLI of its own 0.x line: a fake bundle and a registry with two lines.
+function lines({ app = "0.4.0", global = null } = {}) {
+  const f = fixture("0.5.1"), installs = [], native = [];
+  const plist = (dir, version) => {
+    fs.mkdirSync(path.join(dir, "Contents"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${version}</string></dict></plist>`);
+    return dir;
+  };
+  if (app) plist(appPath(f.env), app);
+  const put = (version) => {
+    fs.mkdirSync(path.join(f.globalRoot, "bin"), { recursive: true });
+    fs.writeFileSync(path.join(f.globalRoot, "bin", "peras.mjs"), "");
+    fs.writeFileSync(path.join(f.globalRoot, "package.json"), JSON.stringify({ name: "peras-cli", version, type: "module" }));
+  };
+  if (global) put(global);
+  const run = async (command, args, options) => {
+    f.calls.push({ command, args });
+    if (args[0] === "view") return { stdout: JSON.stringify(args[1] === "peras-cli@~0.4.0" ? ["0.4.0", "0.4.2"] : "0.5.1") };
+    if (args[0] === "root") return f.run(command, args, options);
+    if (args[0] === "install") { const version = args[2].split("@")[1]; installs.push(version); put(version); return { stdout: "installed" }; }
+    if (args.includes("--native")) { native.push(args.at(-1)); return { stdout: "" }; }
+    throw Error(`unexpected ${args.join(" ")}`);
+  };
+  const invoke = (extra = {}) => f.invoke({ version: "0.4.0", run, ...extra });
+  return { ...f, installs, native, plist, invoke };
+}
+
+test("with the Peras app installed, an update stays on the app's line and says how to move on", async () => {
+  const f = lines();
+  const result = await f.invoke();
+  assert.deepEqual(f.installs, ["0.4.2"]);
+  assert.equal(result.held, "0.5.1");
+  assert.ok(f.messages.some(text => text.includes("peras update --app ~/Downloads/Peras.app") && text.includes("peras.vertias.eu/download")));
+  const check = lines();
+  await check.invoke({ check: true });
+  assert.deepEqual(check.installs, []);
+  assert.ok(check.messages.some(text => text.includes("Peras 0.5.1 is out")));
+});
+
+test("without the Peras app, an update crosses lines as before", async () => {
+  const f = lines({ app: null });
+  const result = await f.invoke();
+  assert.deepEqual(f.installs, ["0.5.1"]);
+  assert.equal(result.held, null);
+});
+
+test("update --app moves CLI and app to the new line together, and refuses an app from another line", async () => {
+  const f = lines();
+  const download = f.plist(path.join(f.root, "Downloads", "Peras.app"), "0.5.1");
+  await f.invoke({ app: download });
+  assert.deepEqual(f.installs, ["0.5.1"]);
+  assert.deepEqual(f.native, [download]);
+  const old = lines();
+  await assert.rejects(old.invoke({ app: old.plist(path.join(old.root, "Old.app"), "0.4.2") }), /for Peras 0\.4\.2.*Nothing was changed/);
+  assert.deepEqual(old.installs, []);
+  await assert.rejects(old.invoke({ app: path.join(old.root, "missing.app") }), /not a Peras app/);
+});
+
+test("update --app restores the previous CLI locally when the new app fails to install", async () => {
+  const f = lines({ global: "0.4.0" });
+  const download = f.plist(path.join(f.root, "Peras.app"), "0.5.1");
+  const failing = async (command, args, options) => {
+    if (args.includes("--native")) { f.calls.push({ args }); throw Error("the app did not answer"); }
+    if (args[0] === "view") return { stdout: JSON.stringify("0.5.1") };
+    if (args[0] === "root") return { stdout: `${path.dirname(f.globalRoot)}\n` };
+    if (args[0] === "install") { const version = args[2].split("@")[1]; f.installs.push(version); fs.writeFileSync(path.join(f.globalRoot, "package.json"), JSON.stringify({ name: "peras-cli", version, type: "module" })); return { stdout: "" }; }
+    throw Error(`unexpected ${args.join(" ")}`);
+  };
+  await assert.rejects(f.invoke({ version: "0.3.9", app: download, run: failing }), /Peras 0\.4\.0 is back.*did not answer/);
+  assert.deepEqual(f.installs, ["0.5.1"]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(f.globalRoot, "package.json"))).version, "0.4.0");
 });

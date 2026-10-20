@@ -9,6 +9,7 @@ export function checkResets(env, snapshots, now, notify = desktopNotify) {
   let saved;
   try { saved = readJson(file) || {}; } catch { saved = {}; }
   const next = { ...saved };
+  const outgoing = [];
   for (const s of snapshots) {
     const key = `${s.provider}:manual`, old = saved[key], current = s.ctx.manualPause;
     if (old?.until && now >= old.until && current?.since !== old.since) {
@@ -21,10 +22,12 @@ export function checkResets(env, snapshots, now, notify = desktopNotify) {
     const key = `${s.provider}:${window}`, old = saved[key], current = s.ctx.window[window]?.resetsAt;
     if (old && !old.sent && now >= old.at * 1000) {
       recordEvent(env, { kind: "reset", provider: s.provider, at: now, message: `${label} window reached its reported reset time.` });
-      if (preferences(env).resets) notify(`Peras 🍐 ${s.provider === "codex" ? "Codex" : "Claude"}`, `Your ${label} usage window has reached its reported reset time.`, { env });
+      if (preferences(env).resets) outgoing.push([`Peras 🍐 ${s.provider === "codex" ? "Codex" : "Claude"}`, `Your ${label} usage window has reached its reported reset time.`, { env }]);
       next[key] = { ...old, sent: true };
     }
     if (Number.isFinite(current) && current !== old?.at) next[key] = { at: current, sent: now >= current * 1000 };
   }
   if (JSON.stringify(next) !== JSON.stringify(saved)) writeJsonAtomic(file, next);
+  // Saved before sent: a monitor that stops here never sends the same reset twice.
+  for (const message of outgoing) notify(...message);
 }

@@ -108,7 +108,7 @@
   .needs { margin: 10px 0 0; font-size: 14px; color: var(--quiet); }
   .needs .mono { color: var(--muted); }
 
-  /* The menu bar, drawn by Peras itself on the demo week (scripts/demo-week.mjs site-images). */
+  /* The menu bar and menu, drawn by the Peras app on the demo week (scripts/demo-week.mjs site-menu). */
   .mb { display: flex; flex-direction: column; align-items: center; }
   .mb-frame { width: 100%; max-width: 420px; font: 13px -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
   .mb-bar { display: flex; align-items: center; gap: 14px; height: 30px; padding: 0 12px; background: #1a1c1a; border: 1px solid #262a26; border-radius: 10px 10px 0 0; }
@@ -117,20 +117,12 @@
   .mb-title { display: flex; align-items: center; height: 24px; padding: 0 7px; border-radius: 5px; background: #3a3e3a; }
   .mb-title img { display: block; }
   .mb-drop { display: flex; justify-content: flex-end; padding-right: max(0px, calc((100% - 340px) / 2)); }
-  .menu { width: max-content; max-width: 100%; margin-top: 4px; padding: 6px 0; background: #222422; border: 1px solid #3a3e3a; border-radius: 10px; box-shadow: 0 18px 40px #000; }
-  .menu > div { display: flex; align-items: center; gap: 8px; min-height: 24px; padding: 0 14px; }
-  .menu .label { min-height: 26px; }
-  .menu .label img, .menu .use img { display: block; }
-  .menu .health { min-height: 0; padding-bottom: 2px; font-size: 11px; color: var(--quiet); }
-  .menu .use { min-height: 26px; }
-  .menu .use span { white-space: pre; font: 11px Menlo, "DejaVu Sans Mono", var(--mono); }
-  .menu .more { justify-content: space-between; }
-  .menu hr { height: 1px; margin: 5px 14px; border: 0; background: #3a3e3a; }
-  .walk { display: block; flex: none; width: 96px; height: 20px; background: 0 0 / 7680px 20px no-repeat; }
-  .walk.claude { background-image: url(menubar/walk-claude.png); }
-  .walk.codex { background-image: url(menubar/walk-codex.png); }
-  @keyframes walk { to { background-position: -7680px 0; } }
-  .motion .walk { animation: walk 10s steps(80) infinite; }
+  .menu { max-width: 100%; margin-top: 4px; overflow: hidden; background: #1f1f1f; border: 1px solid #3a3e3a; border-radius: 10px; box-shadow: 0 18px 40px #000; }
+  .menu img { display: block; width: 320px; max-width: 100%; height: auto; }
+  .buy { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 28px; }
+  .buy .btn-line { border-color: var(--leaf); }
+  .buy .price { font-size: 14px; color: var(--quiet); }
+  .buy + .cmd { margin-top: 14px; }
 
   .center { display: flex; flex-direction: column; align-items: center; text-align: center; }
   .center h2 { margin-bottom: 14px; text-wrap: balance; }
@@ -163,7 +155,6 @@
   /* The smallest phones: draw the whole menu a little smaller rather than clip it. */
   @media (max-width: 370px) {
     .mb-frame { zoom: 0.85; }
-    .menu .use span { font-size: 10px; }
   }
 
   /* The intro: the pear fills row by row, holds at the 75% line, then finishes. */
@@ -238,7 +229,7 @@
     <span><span class="ps">$ </span>npx peras-cli setup</span>
     <button class="copy" type="button" id="copy"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg><span>Copy</span></button>
   </div>
-  <p class="small">v0.3 · free, MIT, local · Node 18+, no dependencies · <span class="mono">peras remove</span> puts everything back</p>
+  <p class="small">v0.4 · free, MIT, local · Node 18+, no dependencies · <span class="mono">peras remove</span> takes the hooks out</p>
 </header>
 
 <figure>
@@ -271,40 +262,24 @@
 <section aria-labelledby="menubar">
   <div class="split">
     <div>
-      <div class="eyebrow">macOS menu bar</div>
+      <div class="eyebrow">The Peras app for macOS</div>
       <h2 id="menubar">Both agents, one glance away.</h2>
-      <p class="copytext">The pear sits next to your clock with each agent's 5-hour usage. Click it for the weekly bars, the time left until each reset, and Pause or Resume for Claude Code and Codex separately.</p>
+      <p class="copytext">The pear sits next to your clock with each agent's 5-hour usage. Click it for the weekly bars, when each window resets, and a pause button for Claude Code and Codex separately.</p>
       <ul class="points">
         <li>Clawd and the Codex companion walk along their 5-hour bars, and stand still while their agent is paused.</li>
-        <li>A percentage turns red when that agent is stopped.</li>
+        <li>Press ⌃⌥P to open it from anywhere, full-screen apps included.</li>
         <li>Prefer it quiet? Show the pear only, and pick which notifications you get.</li>
       </ul>
-      <div class="cmd"><span><span class="ps">$ </span>peras menubar install</span></div>
-      <p class="needs">Needs <a href="https://github.com/swiftbar/SwiftBar">SwiftBar</a>, free: <span class="mono">brew install --cask swiftbar</span></p>
+      <div class="buy"><a class="btn-line" href="/app">Get the Peras app</a><span class="price">€4.99 once · macOS 13 or later</span></div>
+      <div class="cmd"><span><span class="ps">$ </span>peras menubar install --native --app ~/Downloads/Peras.app</span></div>
+      <p class="needs">The CLI and its guard stay free. Build the app yourself from <a href="https://github.com/Vertias3u/Peras#build-the-app-yourself">the source</a>, or use the free <a href="https://github.com/swiftbar/SwiftBar">SwiftBar</a> menu: <span class="mono">peras menubar install</span></p>
     </div>
     <figure class="mb">
-      <div class="mb-frame" role="img" aria-label="The Peras menu bar: Claude at 24% of its 5 hours and 78% of its week, Codex at 12% and 41%, each with Pause 1h and Pause">
-        <div class="mb-bar"><svg class="apple" width="14" height="16" viewBox="0 0 24 24" fill="#edf1e9" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg><span class="mb-right"><span class="mb-title"><img src="menubar/title.png" alt="" width="114" height="20"></span><span>Thu 15:00</span></span></div>
-        <div class="mb-drop"><div class="menu">
-      <div class="label"><img src="menubar/label-claude.png" alt="" width="42" height="20"></div>
-      <div class="health" data-menu>Protection active</div>
-      <div class="use"><i class="walk claude"></i><span data-menu>5h    24% · 3h 24m (18:24)</span></div>
-      <div class="use"><img src="menubar/week-claude.png" alt="" width="96" height="20"><span data-menu>Week  78% · 2d 21h (Sat 12:00)</span></div>
-      <div data-menu>Pause 1h</div>
-      <div data-menu>Pause</div>
-      <hr>
-      <div class="label"><img src="menubar/label-codex.png" alt="" width="38" height="20"></div>
-      <div class="health" data-menu>Protection active</div>
-      <div class="use"><i class="walk codex"></i><span data-menu>5h    12% · 2h 12m (17:12)</span></div>
-      <div class="use"><img src="menubar/week-codex.png" alt="" width="96" height="20"><span data-menu>Week  41% · 4d 5h (Sun 20:00)</span></div>
-      <div data-menu>Pause 1h</div>
-      <div data-menu>Pause</div>
-      <hr>
-      <div data-menu>Status…</div>
-      <div class="more"><span data-menu>Settings</span><svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="#a6afa3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 2l4 4-4 4"/></svg></div>
-        </div></div>
+      <div class="mb-frame" role="img" aria-label="The Peras app's menu: Claude Code at 24% of its 5 hours, resetting at 18:24, and 78% of its week; Codex at 12% and 41%; a pause button beside each">
+        <div class="mb-bar"><svg class="apple" width="14" height="16" viewBox="0 0 24 24" fill="#edf1e9" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg><span class="mb-right"><span class="mb-title"><img src="menubar/app-title.png" alt="" width="113" height="22"></span><span>Thu 15:00</span></span></div>
+        <div class="mb-drop"><div class="menu"><img src="menubar/app-menu.png" alt="" width="320" height="358"></div></div>
       </div>
-      <figcaption>Drawn by Peras itself, on the same demo week.</figcaption>
+      <figcaption>Drawn by the Peras app itself, on the same demo week.</figcaption>
     </figure>
   </div>
 </section>
@@ -348,7 +323,7 @@
 
 <section class="center" aria-labelledby="codex">
   <h2 id="codex">Codex gets the same guard.</h2>
-  <p class="copytext">One command adds the same hooks to Codex desktop and the Codex CLI. Every command works there too: <code>peras codex status</code>, <code>peras codex pause</code>, and the rest.</p>
+  <p class="copytext">One command adds the same hooks to Codex desktop and the Codex CLI. Its own status, lines, pauses, allowances and history work there too: <code>peras codex status</code>, <code>peras codex pause</code>, and the rest.</p>
   <div class="cmd"><span><span class="ps">$ </span>peras codex setup</span></div>
 </section>
 <div class="acts facts">
@@ -372,7 +347,7 @@
       <div><code>peras doctor</code><span>Checks that each agent's hooks actually ran lately.</span></div>
       <div><code>peras notify resets on</code><span>Choose your desktop notifications: warnings, pauses, resets.</span></div>
       <div><code>peras update</code><span>The newest Peras, with your hooks and menu bar refreshed. Your lines and history stay.</span></div>
-      <div><code>peras remove</code><span>Puts everything back the way it was.</span></div>
+      <div><code>peras remove</code><span>Takes out Claude's hooks and restores its status line; <code>peras codex remove</code> does Codex. Your rules and history stay.</span></div>
     </div>
   </div>
   <p class="note">Everything stays on your machine. The event log holds no prompts and no tool commands.</p>

@@ -43,10 +43,24 @@ function readRecord(env) {
 
 export const displayMode = (env) => readRecord(env).display === "pear" ? "pear" : "usage";
 
+// The app adds a third look, a pear that fills with usage. It is saved beside
+// `display`, which stays "pear" so 0.3's menu still reads a value it knows.
+export const DISPLAY_STYLES = ["pear", "usage", "fill"];
+export function displayStyle(env) {
+  const record = readRecord(env);
+  return record.display !== "pear" ? "usage" : record.fill === true ? "fill" : "pear";
+}
+
+export function setDisplayStyle(env, style) {
+  if (!DISPLAY_STYLES.includes(style)) throw new Error("Choose pear, usage or fill: peras menubar display pear|usage|fill");
+  writeJsonAtomic(recordFile(env), { ...readRecord(env), display: style === "usage" ? "usage" : "pear", fill: style === "fill" });
+  return style;
+}
+
 export function setDisplayMode(env, display) {
   if (display !== "pear" && display !== "usage") throw new Error("Choose pear or usage: peras menubar display pear|usage");
-  writeJsonAtomic(recordFile(env), { ...readRecord(env), display });
-  return display;
+  // Choosing the pear here means the plain pear: a filling pear is chosen by name.
+  return setDisplayStyle(env, display);
 }
 
 function swiftbarFolder(env) {
