@@ -26,6 +26,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the release tags, for the tests that compare with 0.3.2
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
