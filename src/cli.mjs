@@ -566,8 +566,10 @@ async function moveToNative(env, out, source, app) {
   const bundle = nativeApp.appPath(env);
   let installed = null;
   if (source) {
+    const inPlace = path.resolve(source) === path.resolve(bundle);
     installed = nativeApp.installApp(env, source, { verify: app.verify, downloaded: app.quarantined });
-    out(`Installed the Peras app in ${tilde(bundle, env)} (Gatekeeper: ${installed.gatekeeper}). Peras runs that copy, so you can delete ${tilde(path.resolve(source), env)}.`);
+    out(inPlace ? `Reinstalled the Peras app in ${tilde(bundle, env)} (Gatekeeper: ${installed.gatekeeper}).`
+      : `Installed the Peras app in ${tilde(bundle, env)} (Gatekeeper: ${installed.gatekeeper}). Peras runs that copy, so you can delete ${tilde(path.resolve(source), env)}.`);
   } else {
     // An install interrupted before its hello: finish its swap, and keep the copy to fall back on.
     nativeApp.recoverInstall(env);
@@ -793,6 +795,11 @@ function doctor(env, out, now) {
     : `• ${name} hooks: ${h.label.toLowerCase()}. ${h.detail}`);
   health("Claude Code", hookHealth(env, "claude", now));
   if (readInstall(codexEnv(env))) health("Codex", hookHealth(env, "codex", now));
+  // 0.4.0 installed the download with its quarantine, so macOS runs it from a temporary mirror.
+  if (nativeApp.liveMenu(env) === "native" && nativeApp.quarantined(nativeApp.appPath(env))) {
+    const bundle = tilde(nativeApp.appPath(env), env);
+    check(false, "", `the Peras app runs from a temporary copy macOS makes, so it can't open at login: run \`peras menubar install --native --app ${bundle}\``);
+  }
   out(problems ? `\n${problems} thing${problems === 1 ? "" : "s"} to fix.` : "\nAll good.");
   return problems ? 1 : 0;
 }

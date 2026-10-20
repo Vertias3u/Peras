@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { sandbox, tempDir } from "./helpers.mjs";
+import { sandbox, tempDir, VERSION } from "./helpers.mjs";
 import { installRuntime } from "../src/runtime-install.mjs";
 import { main } from "../src/cli.mjs";
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -22,7 +22,7 @@ test("F1 setup and codex setup reuse one complete runtime for identical contents
   const { env, root } = sandbox(); env.CODEX_HOME = root + "/codex";
   for (const args of [["setup"], ["codex", "setup"], ["setup"]]) assert.equal(await main(args, { env, out: () => {} }), 0);
   assert.equal(names(env).length, 1);
-  assert.match(names(env)[0], /^runtime-0\.4\.0-[a-f0-9]{20}$/);
+  assert.match(names(env)[0], new RegExp(`^runtime-${VERSION.replaceAll(".", "\\.")}-[a-f0-9]{20}$`));
   assert.ok(fs.existsSync(path.join(resolved(env), ".complete.json")));
 });
 

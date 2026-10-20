@@ -1,5 +1,7 @@
 // The Peras app under PERAS_HOME/native, and moving the menu from SwiftBar to it.
-// The app is copied as it was built, never re-signed or stripped of quarantine.
+// The app is copied as it was built and never re-signed. A download Gatekeeper accepts loses its
+// quarantine on the way in: macOS runs a quarantined app from a temporary mirror (App Translocation),
+// where it can't open at login and Peras can't find it to quit.
 // SwiftBar's plugin is retired only after this launch's bridge has said hello,
 // and it goes to a rollback folder SwiftBar doesn't scan, never to the bin.
 import fs from "node:fs";
@@ -81,11 +83,14 @@ export function quarantined(app) {
   return spawnSync("xattr", ["-p", "com.apple.quarantine", app], { timeout: 5000 }).status === 0;
 }
 
-// ditto keeps the signature, extended attributes and quarantine exactly as they came.
-function copyBundle(from, to) {
+// ditto keeps the signature, extended attributes and quarantine exactly as they came, unless `clean`:
+// then only the files (the signature and Apple's stapled ticket are files too). Only both flags
+// together drop the bundle's quarantine; a copy never opened can still lose it with xattr.
+function copyBundle(from, to, { clean = false } = {}) {
   if (process.platform === "darwin") {
-    const copied = spawnSync("ditto", [from, to], { encoding: "utf8", timeout: 120_000 });
+    const copied = spawnSync("ditto", [...(clean ? ["--noextattr", "--noqtn"] : []), from, to], { encoding: "utf8", timeout: 120_000 });
     if (copied.status !== 0) throw new Error(`Could not copy the app (${(copied.stderr || "ditto failed").trim()}).`);
+    if (clean && quarantined(to)) spawnSync("xattr", ["-d", "com.apple.quarantine", to], { timeout: 5000 });
   } else fs.cpSync(from, to, { recursive: true, verbatimSymlinks: true });
 }
 
@@ -157,7 +162,9 @@ export function installApp(env, source, { verify = verifyApp, downloaded = quara
   const app = appPath(env), fresh = `${app}.new`, previous = `${app}.previous`;
   fs.mkdirSync(nativeDir(env), { recursive: true, mode: 0o700 });
   recoverInstall(env, ops);
-  try { ops.copy(from, fresh); } catch (error) { ops.remove(fresh); throw error; }
+  // Gatekeeper has accepted this download: the installed copy runs where it is, not translocated.
+  const clean = checked.gatekeeper === "accepted" && downloaded(from);
+  try { ops.copy(from, fresh, { clean }); } catch (error) { ops.remove(fresh); throw error; }
   // An earlier install that never checked in keeps the copy before it: that one is known to work.
   const kept = valid(previous), hadOne = kept || valid(app);
   if (fs.existsSync(app)) {
@@ -171,14 +178,28 @@ export function installApp(env, source, { verify = verifyApp, downloaded = quara
   return { gatekeeper: checked.gatekeeper, replaced: hadOne, ...swap(env, ops) };
 }
 
-// Only processes started from this exact bundle: never a preview build or another copy of Peras.
+/**
+ * Where macOS runs a quarantined copy of `app` from: a read-only mirror under AppTranslocation,
+ * which `mount` lists as "<app> on <mirror> (nullfs, …)". An app installed by 0.4.0 runs there.
+ */
+export function translocatedPaths(app, mounts = () => spawnSync("mount", [], { encoding: "utf8", timeout: 5000 }).stdout ?? "") {
+  return mounts().split("\n").flatMap((line) => {
+    if (!line.startsWith(`${app} on `)) return [];
+    const mirror = /^(\/\S*\/AppTranslocation\/[^/\s]+) \(nullfs/.exec(line.slice(app.length + 4))?.[1];
+    return mirror ? [path.join(mirror, "d", path.basename(app))] : [];
+  });
+}
+
+// Only processes started from this exact bundle (or macOS's mirror of it): never a preview build or another copy of Peras.
 function appPids(app) {
   // A process reports its resolved path: a PERAS_HOME behind a symlink still has to match.
   try { app = fs.realpathSync(app); } catch { /* not installed: nothing to match */ }
-  // pgrep reads a regular expression: the path's dots and any brackets in a home folder are taken literally.
-  const pattern = `^${`${app}/Contents/MacOS/`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`;
-  const found = spawnSync("pgrep", ["-f", pattern], { encoding: "utf8", timeout: 5000 });
-  return found.status === 0 ? found.stdout.split("\n").map(Number).filter((pid) => pid > 0 && pid !== process.pid) : [];
+  return [app, ...translocatedPaths(app)].flatMap((bundle) => {
+    // pgrep reads a regular expression: the path's dots and any brackets in a home folder are taken literally.
+    const pattern = `^${`${bundle}/Contents/MacOS/`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`;
+    const found = spawnSync("pgrep", ["-f", pattern], { encoding: "utf8", timeout: 5000 });
+    return found.status === 0 ? found.stdout.split("\n").map(Number).filter((pid) => pid > 0 && pid !== process.pid) : [];
+  });
 }
 export const appRunning = (app) => process.platform === "darwin" && appPids(app).length > 0;
 

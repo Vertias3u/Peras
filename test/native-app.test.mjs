@@ -7,7 +7,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { main } from "../src/cli.mjs";
 import { sandbox, tempDir, VERSION } from "./helpers.mjs";
-import { announceBridge, appPath, handshake, installApp, liveMenu, recoverInstall, rollbackDir } from "../src/native-app.mjs";
+import { announceBridge, appPath, handshake, installApp, liveMenu, quarantined, recoverInstall, rollbackDir, translocatedPaths } from "../src/native-app.mjs";
 import { runProtectionTest } from "../src/protection-test.mjs";
 
 const BIN = new URL("../bin/peras.mjs", import.meta.url).pathname;
@@ -431,4 +431,49 @@ test("R4 a failed quarantined replacement restores the previous app and keeps th
   assert.equal(pending.length, 1);
   assert.match(fs.readFileSync(path.join(path.dirname(appPath(env)), pending[0], "Contents", "MacOS", "Peras"), "utf8"), /new/);
   assert.match(r.text, /previous app is back/);
+});
+
+// macOS runs a quarantined app from a temporary mirror (App Translocation): it can't open at login
+// there, and Peras can't find it to quit. 0.4.0 installed downloads that way.
+test("a download Gatekeeper accepts is copied without quarantine; anything else is copied as it came", () => {
+  for (const [gatekeeper, downloaded, clean] of [["accepted", true, true], ["accepted", false, false], ["not notarized", true, false]]) {
+    const { env } = sandbox(), seen = [];
+    const copy = (from, to, options) => { seen.push(Boolean(options?.clean)); fs.cpSync(from, to, { recursive: true }); };
+    installApp(env, fakeApp(), { verify: () => ({ ok: true, gatekeeper }), downloaded: () => downloaded, ops: { copy } }).confirm();
+    assert.deepEqual(seen, [clean], `${gatekeeper}, downloaded=${downloaded}`);
+  }
+});
+
+test("on macOS the installed copy of an accepted download has no quarantine, and a rejected one keeps it", { skip: process.platform !== "darwin" && "macOS only" }, () => {
+  const source = fakeApp();
+  assert.equal(spawnSync("xattr", ["-w", "com.apple.quarantine", "0083;6ad76cd5;Safari;1119C170-8B53-4BAA-AD7E-13C025761FD0", source]).status, 0);
+  assert.ok(quarantined(source));
+  const accepted = sandbox().env, rejected = sandbox().env;
+  installApp(accepted, source, { verify: () => ({ ok: true, gatekeeper: "accepted" }) }).confirm();
+  assert.equal(quarantined(appPath(accepted)), false, "runs in place");
+  installApp(rejected, source, { verify: () => ({ ok: true, gatekeeper: "not notarized" }) }).confirm();
+  assert.ok(quarantined(appPath(rejected)), "macOS still checks an app Gatekeeper didn't accept");
+});
+
+test("a translocated app is found through the mount that mirrors it, and only that app", () => {
+  const app = "/Users/a b/.peras/native/Peras.app";
+  const mounts = () => [
+    `${app} on /private/var/folders/x/T/AppTranslocation/F1BCE961-99 (nullfs, local, nodev, nosuid, read-only, noowners, quarantine, mounted by a)`,
+    "/Users/a b/Downloads/Peras.app on /private/var/folders/x/T/AppTranslocation/AAAA-1 (nullfs, local, read-only)",
+    `${app}.previous on /private/var/folders/x/T/AppTranslocation/BBBB-2 (nullfs, local, read-only)`,
+    "/dev/disk3s1 on / (apfs, sealed, local, read-only, journaled)",
+  ].join("\n");
+  assert.deepEqual(translocatedPaths(app, mounts), ["/private/var/folders/x/T/AppTranslocation/F1BCE961-99/d/Peras.app"]);
+  assert.deepEqual(translocatedPaths("/Users/a b/.peras/native/Other.app", mounts), []);
+});
+
+test("doctor names an app installed with its quarantine and the command that reinstalls it in place", { skip: process.platform !== "darwin" && "macOS only" }, async () => {
+  const { env } = sandbox();
+  await run(env, ["setup"]);
+  installApp(env, fakeApp(), ok).confirm();
+  assert.ok(!(await run(env, ["doctor"])).text.includes("temporary copy"));
+  assert.equal(spawnSync("xattr", ["-w", "com.apple.quarantine", "00c3;6ad76cd5;Safari;", appPath(env)]).status, 0);
+  const { code, text } = await run(env, ["doctor"]);
+  assert.equal(code, 1);
+  assert.match(text, /✗ the Peras app runs from a temporary copy macOS makes, so it can't open at login: run `peras menubar install --native --app .*native\/Peras\.app`/);
 });

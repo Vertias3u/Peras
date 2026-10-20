@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (2026-10-20)
+
+- The downloaded Peras app now runs from where Peras installs it. 0.4.0 copied the download with macOS's quarantine flag, so macOS ran the app from a temporary copy: it couldn't open at login, and `peras menubar quit` and `peras update --app` couldn't find it. `peras menubar install --native --app` now installs an app Gatekeeper accepts without that flag; an app Gatekeeper doesn't accept keeps it, so macOS still checks it. Installed with 0.4.0? Run `peras update`, then `peras menubar install --native --app ~/.peras/native/Peras.app`. `peras doctor` says so when it's needed. The app itself is unchanged.
+
 ## 0.4.0 (2026-10-20)
 
 - **The Peras app.** A menu bar app replaces the SwiftBar menu, so SwiftBar is no longer needed. It costs €4.99 at [peras.vertias.eu/app](https://peras.vertias.eu/app), signed and notarized; the CLI, hooks and SwiftBar menu stay free, and the app's source is MIT like the rest: `npm run build:app` builds it yourself. Open `Peras.zip`, then run `peras menubar install --native --app ~/Downloads/Peras.app`. It checks the app, opens it, and moves Peras's SwiftBar plugin aside only once the app answers; if anything fails, SwiftBar's menu stays as it was. Hooks and the CLI work as before, and `peras menubar install` still gives the SwiftBar menu. Built for macOS 13 or later on Apple silicon and Intel; tested on Apple silicon with the current macOS.
