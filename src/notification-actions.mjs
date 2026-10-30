@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { perasHome, dirKey, readJson, writeJsonAtomic, resume, readState, context, resumableKeys } from "./store.mjs";
+import { perasHome, dirKey, readJson, writeJsonAtomic, resume, pauseNow, readState, context, resumableKeys } from "./store.mjs";
 import { codexEnv } from "./codex.mjs";
 import { snapshot } from "./providers.mjs";
 import { writeStatusPage } from "./status-page.mjs";
@@ -16,9 +16,9 @@ export function snoozeReminder(env,resetsAt,now=Date.now(),forMs=3600_000){if(!N
 export function consumeSnooze(env,value){writeJsonAtomic(snoozeFile(env),{...value,consumed:true})}
 export function createActionTicket(root,env,{provider=env.PERAS_PROVIDER==='codex'?'codex':'claude',category='status',resetsAt,pauseKeys=[]}={},now=Date.now()){
  const id=randomUUID(),directory=path.join(root,"actions");fs.mkdirSync(directory,{recursive:true,mode:0o700});
- for(const file of fs.readdirSync(directory)){if(!/^[\da-f-]{36}\.json(?:\.resumed)?$/.test(file))continue;try{if(fs.statSync(path.join(directory,file)).mtimeMs<now-7*86400_000)fs.unlinkSync(path.join(directory,file))}catch{}}
+ for(const file of fs.readdirSync(directory)){if(!/^[\da-f-]{36}\.json(?:\.resumed|\.paused)?$/.test(file))continue;try{if(fs.statSync(path.join(directory,file)).mtimeMs<now-7*86400_000)fs.unlinkSync(path.join(directory,file))}catch{}}
  const selected=Object.fromEntries(["HOME","PERAS_HOME","CLAUDE_CONFIG_DIR","CODEX_HOME"].filter(k=>typeof env[k]==='string').map(k=>[k,env[k]]));
- writeJsonAtomic(path.join(directory,`${id}.json`),{id,env:selected,provider,category:['pause','reminder'].includes(category)?category:'status',resetsAt:resetsAt||null,createdAt:now,pauseKeys:pauseKeys.filter(k=>typeof k==='string').slice(0,100),expiresAt:now+7*86400_000});return id;
+ writeJsonAtomic(path.join(directory,`${id}.json`),{id,env:selected,provider,category:['pause','reminder','burn'].includes(category)?category:'status',resetsAt:resetsAt||null,createdAt:now,pauseKeys:pauseKeys.filter(k=>typeof k==='string').slice(0,100),expiresAt:now+7*86400_000});return id;
 }
 /**
  * v0.4: a click on a notification brings Peras's own menu forward when the menu app is
@@ -34,7 +34,7 @@ export async function openNativeMenu(env,{platform=process.platform,running,laun
  if(!(running??app.appRunning)(bundle))return false;
  (launch??app.launchApp)(bundle);return true;
 }
-export async function handleNotificationAction(file,action,{now=Date.now(),openURL=async url=>promisify(execFile)(process.platform==='darwin'?'/usr/bin/open':'xdg-open',[url]),resumeAgent=resume,openMenu=openNativeMenu}={}){
+export async function handleNotificationAction(file,action,{now=Date.now(),openURL=async url=>promisify(execFile)(process.platform==='darwin'?'/usr/bin/open':'xdg-open',[url]),resumeAgent=resume,pauseAgent=pauseNow,openMenu=openNativeMenu}={}){
  if(!/^[\da-f-]{36}\.json$/.test(path.basename(file)))throw new Error("Invalid notification action ticket.");
  const ticket=readJson(file);if(!ticket||ticket.id!==path.basename(file,'.json')||ticket.expiresAt<=now||!['claude','codex'].includes(ticket.provider))throw new Error("This notification action has expired.");
  const env=ticket.env,scoped=ticket.provider==='codex'?codexEnv(env):env;
@@ -49,6 +49,14 @@ export async function handleNotificationAction(file,action,{now=Date.now(),openU
   try{resumeAgent(scoped,{now,forMs:3600_000})}catch(error){fs.unlinkSync(consumed);throw error}
   return {resumed:true,provider:ticket.provider};
  }
+ // A burn warning's one button: pause now, until resume, the way peras pause does. One click, within the hour.
+ if(action==='PERAS_PAUSE_NOW'){
+  if(ticket.category!=='burn')throw new Error("Only a burn warning can pause from its notification.");
+  if(now-ticket.createdAt>3600_000)throw new Error("This burn warning is over an hour old. Open Status to pause.");
+  const consumed=`${file}.paused`;try{fs.writeFileSync(consumed,'1',{flag:'wx',mode:0o600})}catch(error){if(error.code==='EEXIST')return {alreadyHandled:true};throw error}
+  try{pauseAgent(scoped,{now})}catch(error){fs.unlinkSync(consumed);throw error}
+  return {paused:true,provider:ticket.provider};
+ }
  if(action==='PERAS_SNOOZE'){
   if(ticket.category!=='reminder')throw new Error("Only unused-allowance reminders can be snoozed.");
   return {snoozed:snoozeReminder(scoped,ticket.resetsAt,now)};
@@ -61,7 +69,7 @@ export async function handleNotificationAction(file,action,{now=Date.now(),openU
 if(process.argv[1]===fileURLToPath(import.meta.url)) {
  const file=process.argv[2]||'',action=process.argv[3]||'';
  handleNotificationAction(file,action).catch(async error=>{
-  if(['PERAS_RESUME','PERAS_SNOOZE'].includes(action)) {
+  if(['PERAS_RESUME','PERAS_SNOOZE','PERAS_PAUSE_NOW'].includes(action)) {
    try {const ticket=readJson(file);recordEvent(ticket.env,{kind:'notification-action',provider:ticket.provider,message:`Action was not applied: ${error.message}`});await handleNotificationAction(file,'PERAS_STATUS')}catch{}
   }
   process.exitCode=1;

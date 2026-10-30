@@ -10,6 +10,7 @@ import { withControlLock } from "./control-lock.mjs";
 import { perasHome, readJson, writeJsonAtomic } from "./store.mjs";
 import { checkResets } from "./reset-notifications.mjs";
 import { checkUnusedReminders } from "./unused-reminders.mjs";
+import { checkSavedResetReminders } from "./saved-resets.mjs";
 
 export const STALE_MS = 15_000;
 const file = (env) => path.join(perasHome(env), "monitor-owner.json");
@@ -50,5 +51,6 @@ export function runMonitor(env, snapshots, now, { id, owner, notify }) {
   if (!holdMonitor(env, now, { id, owner })) return false;
   try { checkResets(env, snapshots, now, notify); } catch { /* next refresh */ }
   try { checkUnusedReminders(env, snapshots, now, notify); } catch { /* next refresh */ }
+  try { checkSavedResetReminders(env, snapshots, now, notify); } catch { /* next refresh */ }
   return true;
 }

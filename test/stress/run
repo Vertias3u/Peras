@@ -1,0 +1,10 @@
+// Directory entry point for Node 18/22, which resolve `node --test test/stress/`
+// as a module instead of recursively discovering the files. No extension keeps
+// normal `node --test` discovery from executing the same tests a second time.
+Promise.all([
+  import('./concurrency.test.mjs'),
+  import('./corruption.test.mjs'),
+  import('./time-properties.test.mjs'),
+  import('./codex-answers.test.mjs'),
+  import('./filesystem-scale-rollback.test.mjs'),
+]).catch(error => { console.error(error); process.exitCode = 1; });

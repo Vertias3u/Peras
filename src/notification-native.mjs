@@ -17,10 +17,12 @@ export const notificationSource = String.raw`
   UNNotificationAction *status=[UNNotificationAction actionWithIdentifier:@"PERAS_STATUS" title:@"Open Status" options:UNNotificationActionOptionForeground];
   UNNotificationAction *resume=[UNNotificationAction actionWithIdentifier:@"PERAS_RESUME" title:@"Resume for 1 hour" options:UNNotificationActionOptionForeground];
   UNNotificationAction *snooze=[UNNotificationAction actionWithIdentifier:@"PERAS_SNOOZE" title:@"Remind me in 1 hour" options:UNNotificationActionOptionForeground];
+  UNNotificationAction *pauseNow=[UNNotificationAction actionWithIdentifier:@"PERAS_PAUSE_NOW" title:@"Pause now" options:UNNotificationActionOptionForeground];
   NSSet *declaredCategories=[NSSet setWithArray:@[
     [UNNotificationCategory categoryWithIdentifier:@"PERAS_STATUS" actions:@[status] intentIdentifiers:@[] options:UNNotificationCategoryOptionNone],
     [UNNotificationCategory categoryWithIdentifier:@"PERAS_PAUSE" actions:@[status,resume] intentIdentifiers:@[] options:UNNotificationCategoryOptionNone],
-    [UNNotificationCategory categoryWithIdentifier:@"PERAS_REMINDER" actions:@[status,snooze] intentIdentifiers:@[] options:UNNotificationCategoryOptionNone]]];
+    [UNNotificationCategory categoryWithIdentifier:@"PERAS_REMINDER" actions:@[status,snooze] intentIdentifiers:@[] options:UNNotificationCategoryOptionNone],
+    [UNNotificationCategory categoryWithIdentifier:@"PERAS_BURN" actions:@[status,pauseNow] intentIdentifiers:@[] options:UNNotificationCategoryOptionNone]]];
   [center setNotificationCategories:declaredCategories];
   NSMutableDictionary *declared=[NSMutableDictionary new];
   for(UNNotificationCategory *category in declaredCategories){NSMutableArray *ids=[NSMutableArray new];for(UNNotificationAction *action in category.actions)[ids addObject:action.identifier];declared[category.identifier]=ids;}
@@ -44,7 +46,7 @@ export const notificationSource = String.raw`
     if(!granted||error){[self finish:@{@"error":error.localizedDescription?:@"Allow Peras in System Settings > Notifications."}];return;}
     UNMutableNotificationContent *content=[UNMutableNotificationContent new];content.title=self.request[@"title"]?:@"Peras";content.body=self.request[@"body"]?:@"";
     NSString *category=self.request[@"category"];
-    content.categoryIdentifier=[category isEqual:@"pause"]?@"PERAS_PAUSE":[category isEqual:@"reminder"]?@"PERAS_REMINDER":@"PERAS_STATUS";
+    content.categoryIdentifier=[category isEqual:@"pause"]?@"PERAS_PAUSE":[category isEqual:@"reminder"]?@"PERAS_REMINDER":[category isEqual:@"burn"]?@"PERAS_BURN":@"PERAS_STATUS";
     content.userInfo=@{@"ticket":self.request[@"ticket"]?:@""};
     UNNotificationRequest *request=[UNNotificationRequest requestWithIdentifier:NSUUID.UUID.UUIDString content:content trigger:nil];
     [center addNotificationRequest:request withCompletionHandler:^(NSError *deliveryError){
@@ -55,7 +57,7 @@ export const notificationSource = String.raw`
 }
 - (void)performTicket:(NSString *)ticket action:(NSString *)action completion:(void (^)(BOOL))completion {
   NSRegularExpression *uuid=[NSRegularExpression regularExpressionWithPattern:@"^[0-9a-fA-F-]{36}$" options:0 error:nil];
-  NSSet *allowed=[NSSet setWithArray:@[@"PERAS_STATUS",@"PERAS_RESUME",@"PERAS_SNOOZE",UNNotificationDefaultActionIdentifier]];
+  NSSet *allowed=[NSSet setWithArray:@[@"PERAS_STATUS",@"PERAS_RESUME",@"PERAS_SNOOZE",@"PERAS_PAUSE_NOW",UNNotificationDefaultActionIdentifier]];
   if(![ticket isKindOfClass:NSString.class]||[uuid numberOfMatchesInString:ticket options:0 range:NSMakeRange(0,ticket.length)]!=1||![allowed containsObject:action]){completion(NO);return;}
   NSURL *root=[NSBundle.mainBundle.bundleURL URLByDeletingLastPathComponent];
   NSString *file=[[[root URLByAppendingPathComponent:@"actions"] URLByAppendingPathComponent:[ticket stringByAppendingString:@".json"]] path];

@@ -131,7 +131,7 @@ test("set: every kind, per folder, and reset keeps or drops folder lines", async
   assert.match(here.text, /in .+: weekly 60% pause/);
   assert.match((await run(env, "set", "reset")).text, /in .+: weekly 60% pause/);
   assert.doesNotMatch((await run(env, "set", "--here", "reset")).text, /in .+:/);
-  assert.equal(readRules(env).length, 4);
+  assert.equal(readRules(env).length, 5);
 });
 
 test("status: bars, the forecast, and this week by chat", async () => {

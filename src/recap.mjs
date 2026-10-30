@@ -10,6 +10,14 @@ export const RECAP_MS = 3 * 86400_000;
 // A last reading this close to the reset is the week's end, not a guess at it.
 const AT_RESET_MS = 3600_000;
 
+// Burn lines that stopped the agent (ask or pause); a warning stopped nothing.
+function burnsIn(events) {
+  const stops = events.map((e) => e.data).filter((d) => d?.kind === "rate" && d.action !== "warn" && Number.isFinite(d.rise));
+  const top = stops.reduce((a, d) => (!a || d.rise > a.rise ? d : a), null);
+  const minutes = top && Math.max(1, Math.round((events.find((e) => e.data === top).at - (top.since ?? 0)) / 60_000));
+  return { count: stops.length, biggest: top ? { rise: Math.round(top.rise * 10) / 10, minutes: Number.isFinite(minutes) && minutes <= top.span ? minutes : top.span } : null };
+}
+
 /**
  * The provider's last completed week, or null outside the days after its reset.
  * `pauses` is null when the kept event history doesn't reach back to the week's start.
@@ -27,6 +35,7 @@ export function weekRecap(env, usage, provider, now) {
     ? events.filter((e) => e.provider === provider && e.kind === "pause" && e.at >= end - WEEK && e.at < end).length
     : null;
   const used = week.pts.at(-1)[1];
+  const burns = pauses === null ? null : burnsIn(events.filter((e) => e.provider === provider && e.at >= end - WEEK && e.at < end));
   return {
     id: `${provider}:${latest.resetsAt}`,
     weekEndedAtMs: end,
@@ -34,6 +43,7 @@ export function weekRecap(env, usage, provider, now) {
     lastReadingAtMs: week.lastAt,
     atReset: end - week.lastAt <= AT_RESET_MS,
     pauses,
+    burns,
     untilMs: end + RECAP_MS,
   };
 }

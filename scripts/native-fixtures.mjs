@@ -115,6 +115,31 @@ const scenarios = {
     recordEvent(env, { kind: "warning", provider: "claude", at: endMs - 86400_000, message: "Weekly usage passed 80%." });
     await refreshCodex(env, NOW - 30_000, { reader: async () => codexAnswer("01") });
   },
+  // Claude's 5-hour window jumped 22 points in two minutes, past a 15-in-5 pause line, after
+  // starting two subagents: the burn badge reads "stopped" and the agent row counts them.
+  "burning-fast": async (env) => {
+    setUp(env);
+    const { writeUsage } = await import("../src/usage.mjs");
+    writeRules(env, [...DEFAULT_RULES, { kind: "rate", window: "five_hour", at: 15, span: 5, action: "pause" }, { kind: "agents", at: 3, action: "ask" }]);
+    for (const at of [NOW - 4 * 60_000, NOW - 3 * 60_000]) runHook({ env, now: at, input: { hook_event_name: "PreToolUse", session_id: "fixture-session", cwd: env.HOME, tool_name: "Agent" } });
+    const reading = claudeReading(26, 50);
+    writeUsage(env, { v: 1, windows: { five_hour: { resetsAt: reading.five_hour.resetsAt, pts: [[NOW - 2 * 60_000, 4], [NOW - 60_000, 14], [NOW - 30_000, 26]] } }, weeks: [], blame: null });
+    recordReading(env, reading);
+    await refreshCodex(env, NOW - 30_000, { reader: async () => codexAnswer("01") });
+  },
+  // Only the default warning line: rising usage keeps the turn running, with one
+  // subagent this prompt and no configured subagent line. Codex has a saved reset.
+  "burning-rising": async (env) => {
+    setUp(env);
+    const { writeUsage } = await import("../src/usage.mjs");
+    runHook({ env, now: NOW - 3 * 60_000, input: { hook_event_name: "PreToolUse", session_id: "fixture-session", cwd: env.HOME, tool_name: "Agent" } });
+    const reading = claudeReading(26, 50);
+    writeUsage(env, { v: 1, windows: { five_hour: { resetsAt: reading.five_hour.resetsAt, pts: [[NOW - 2 * 60_000, 4], [NOW - 60_000, 14], [NOW - 30_000, 26]] } }, weeks: [], blame: null });
+    recordReading(env, reading);
+    // Codex holds one saved reset that expires in 20 hours.
+    const saved = { availableCount: 1, credits: [{ id: "fixture-credit", grantedAt: Math.round(NOW / 1000) - 28 * 86_400, expiresAt: Math.round(NOW / 1000) + 20 * 3600, resetType: "codexRateLimits", status: "available", title: "Full reset (Weekly + 5 hr)" }] };
+    await refreshCodex(env, NOW - 30_000, { reader: async () => ({ ...codexAnswer("01"), rateLimitResetCredits: saved }) });
+  },
   // Today's allowance is used up; Codex is reporting weekly usage only.
   "daily-exhausted": async (env) => {
     setUp(env);

@@ -53,6 +53,13 @@ function packageAt(root) {
   } catch { return null; }
 }
 
+/** True when this CLI runs from a Homebrew keg (`…/Cellar/peras/<version>/…`). */
+export function homebrewInstall(root) {
+  let real = root;
+  try { real = fs.realpathSync(root); } catch { /* the path as given */ }
+  return /[\\/]Cellar[\\/]peras[\\/][^\\/]+[\\/]/.test(real);
+}
+
 /** Install a published CLI, then run that CLI's setup for existing integrations.
  * The Peras app only runs a CLI of its own 0.x line, so with the app installed the update stays on
  * that line; `app` (a downloaded Peras.app) moves CLI and app to the newer line together.
@@ -85,6 +92,21 @@ export async function updateCLI({ env, version, root, check = false, app: source
     if (compareVersions(latest, installedApp) > 0) held = latest;
   }
   const holdNote = held && `Peras ${held} is out. It needs the Peras ${lineOf(held)} app, and yours is ${installedApp}, so Peras stays on ${lineOf(installedApp)} until then. The new app comes with your purchase: download it from ${APP_DOWNLOAD_URL} (or build it yourself), then run peras update --app ~/Downloads/Peras.app.`;
+
+  // Homebrew owns its copy: npm installing beside it would leave two Peras on PATH.
+  // It installs only the newest Peras, so an app held on an older line has to be replaced along with it.
+  if (homebrewInstall(root)) {
+    const newerBrew = compareVersions(latest, version) > 0, needsApp = !source && held;
+    const steps = source || needsApp ? `brew upgrade peras, then peras menubar install --native --app ${source ?? "~/Downloads/Peras.app"}, then peras setup` : "brew upgrade peras, then peras setup";
+    const how = needsApp
+      ? `Peras ${latest} needs the Peras ${lineOf(latest)} app, and yours is ${installedApp}; Homebrew installs only the newest Peras. Download the new app from your purchase at ${APP_DOWNLOAD_URL} (or build it yourself), then run ${steps}.`
+      : `Peras was installed with Homebrew: run ${steps}.`;
+    if (check) {
+      out(newerBrew ? `Update available: ${version} → ${latest}. ${how}` : `No newer release. Installed ${version}; published ${latest}.`);
+      return { updated: false, available: newerBrew, version, latest, held, homebrew: true };
+    }
+    throw new Error(`${needsApp ? `Peras was installed with Homebrew. ${how}` : how} Nothing was changed.`);
+  }
 
   const globalResponse = await run(npm, ["root", "--global"], options);
   const globalModules = globalResponse.stdout.trim();
@@ -154,7 +176,8 @@ export async function updateCLI({ env, version, root, check = false, app: source
     const bin = path.join(activeRoot, "bin", "peras.mjs");
     const refresh = async (args, label) => {
       out(`Refreshing ${label}…`);
-      try { await run(process.execPath, [bin, ...args], { ...options, timeout: 30_000 }); }
+      // With a new app on the way, the new CLI's setup checks that app's line, not the installed one's.
+      try { await run(process.execPath, [bin, ...args], { ...options, ...(source ? { env: { ...env, PERAS_INCOMING_APP: path.resolve(source) } } : {}), timeout: 30_000 }); }
       catch (error) { throw new Error(`CLI is ${activeVersion}, but ${label} refresh failed. Run peras ${args.join(" ")} to retry. ${error.message}`); }
     };
     if (claude) await refresh(["setup"], "Claude hooks and runtime");

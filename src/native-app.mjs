@@ -19,7 +19,7 @@ export const appInstalled = (env) => fs.existsSync(path.join(appPath(env), "Cont
 
 // The newest Peras app for this CLI's 0.x line. Raise it whenever a new app goes to Polar (RELEASING.md 1b):
 // the menu then offers it to anyone whose app is older. Buyers get every app from their Polar purchase.
-export const APP_RELEASE = "0.4.0";
+export const APP_RELEASE = "0.5.0";
 export const APP_DOWNLOAD_URL = "https://peras.vertias.eu/download";
 /** The Peras version an app bundle was built for (its PerasRuntimeVersion), or null. */
 export function bundleVersion(app) {

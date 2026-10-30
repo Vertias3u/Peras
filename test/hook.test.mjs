@@ -252,11 +252,11 @@ test("upgrading from 0.1: its real config and state load, and nothing already sa
   assert.match(out.systemMessage, /^Peras: weekly runs out \S+ \d\d:\d\d at this pace \(resets \S+ \d\d:\d\d\)\.$/);
   assert.equal(notes.length, 1);
   assert.doesNotMatch(notes[0], /line 75%/);
-  // 0.1 wrote its defaults out in full; 0.2's new default line still arrives.
+  // 0.1 wrote its defaults out in full; later default lines still arrive.
   const { readRules } = await import("../src/store.mjs");
-  assert.deepEqual(readRules(box.env).map((r) => r.kind), ["window", "window", "window", "pace"]);
+  assert.deepEqual(readRules(box.env).map((r) => r.kind), ["window", "window", "window", "pace", "rate"]);
   writeRules(box.env, readRules(box.env).filter((r) => r.kind !== "pace"));
-  assert.equal(readRules(box.env).length, 3, "turned off after the upgrade, it stays off");
+  assert.equal(readRules(box.env).length, 4, "turned off after the upgrade, it stays off");
 });
 
 // A hook writes back the state it read. A `peras pause` or `resume` typed while it

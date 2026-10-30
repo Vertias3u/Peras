@@ -118,7 +118,13 @@
           "expiresAtMs": null
         }
       ],
-      "recap": null
+      "recap": null,
+      "burn": [],
+      "subagents": {
+        "prompt": 0,
+        "line": null
+      },
+      "savedResets": null
     },
     {
       "id": "codex",
@@ -222,7 +228,13 @@
           "expiresAtMs": null
         }
       ],
-      "recap": null
+      "recap": null,
+      "burn": [],
+      "subagents": {
+        "prompt": 0,
+        "line": null
+      },
+      "savedResets": null
     }
   ],
   "settings": {

@@ -2,6 +2,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { claudeDir, readInstall, writeInstall, installFile } from "./store.mjs";
 
+// Claude Code 2.1.97 added statusLine.refreshInterval (seconds). Readings come only from the
+// status line, so re-running it every 10 s keeps a burn line as fresh as Codex's. Older
+// versions may refuse a key they don't know, so it is written only when the version is known.
+export const REFRESH_SINCE = [2, 1, 97];
+export const REFRESH_S = 10;
+export const refreshes = (version) => {
+  const v = String(version ?? "").match(/(\d+)\.(\d+)\.(\d+)/)?.slice(1).map(Number);
+  return Boolean(v) && (v[0] - REFRESH_SINCE[0] || v[1] - REFRESH_SINCE[1] || v[2] - REFRESH_SINCE[2]) >= 0;
+};
+
 // Peras writes into Claude Code's USER settings: three command hooks and the
 // status line. It never touches the login, the env, or ANTHROPIC_BASE_URL, so
 // Remote Control keeps working. `uninstall` takes out exactly what `install` put in.
@@ -102,11 +112,12 @@ const hasPerasParts = (value) =>
   isPerasCommand(value.statusLine?.command) || (isObject(value.hooks) && Object.values(value.hooks).some((g) => Array.isArray(g) && g.some(hasOurHook)));
 
 /**
- * @param {{ env?: object, command: string, resumeHint?: string, version?: string, failurePolicy?: "default"|"strict", claudeVersion?: string }} options
+ * @param {{ env?: object, command: string, resumeHint?: string, version?: string, failurePolicy?: "default"|"strict", claudeVersion?: string, runningClaude?: string|null }} options
+ *   `runningClaude` is the installed Claude Code's version, for the status line's refresh only.
  *   `command` runs Peras: `"<node>" "<home>/.peras/app/bin/peras.mjs"`.
  *   Without `failurePolicy`, the installed one stays: a setup or update never turns strict off.
  */
-export function install({ env = process.env, command, resumeHint = "peras resume", version = "", failurePolicy, claudeVersion }) {
+export function install({ env = process.env, command, resumeHint = "peras resume", version = "", failurePolicy, claudeVersion, runningClaude = null }) {
   const target = settingsPath(env);
   const { exists, value } = readSettings(target);
   const record = readInstall(env);
@@ -126,6 +137,11 @@ export function install({ env = process.env, command, resumeHint = "peras resume
     statusLine = { type: "command", command: statusCommand(command) };
   }
 
+  // A shorter interval of the user's own stays; theirs comes back on uninstall with their status line.
+  const refresh = refreshes(runningClaude);
+  if (refresh) statusLine.refreshInterval = Math.min(Number.isFinite(statusLine.refreshInterval) && statusLine.refreshInterval >= 1 ? statusLine.refreshInterval : REFRESH_S, REFRESH_S);
+  // An older Claude Code now: take out the interval Peras wrote, never one the user set.
+  else if (runningClaude && !Number.isFinite(original?.refreshInterval)) delete statusLine.refreshInterval;
   const next = { ...value, hooks: withOurHooks(value.hooks, command, policy), statusLine };
   writeInstall(env, { settingsPath: target, statusLine: original, command, resumeHint, version, failurePolicy: policy, ...(claudeVersion ? { claudeVersion } : {}) });
 
@@ -142,6 +158,7 @@ export function install({ env = process.env, command, resumeHint = "peras resume
     backupPath: fs.existsSync(backupPath) ? backupPath : null,
     chained: original?.command ?? null,
     hooksDisabled: value.disableAllHooks === true,
+    refresh,
   };
 }
 

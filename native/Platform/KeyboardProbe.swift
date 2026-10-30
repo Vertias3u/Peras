@@ -214,7 +214,7 @@ final class AccessibilityAudit {
   static let controls: Set<String> = ["AXButton", "AXCheckBox", "AXRadioButton", "AXPopUpButton", "AXMenuButton", "AXSlider",
     "AXTextField", "AXLink", "AXComboBox", "AXDisclosureTriangle", "AXSwitch", "AXRadioGroup", "AXIncrementor"]
   static let windowWidgets: Set<String> = ["AXCloseButton", "AXMinimizeButton", "AXZoomButton", "AXFullScreenButton"]
-  static let fixtureScenarios = ["normal-usage", "manual-pause", "missing-setup", "scoped-stop", "suggestion-pause", "daily-exhausted", "pacing-text", "weekly-recap"]
+  static let fixtureScenarios = ["normal-usage", "manual-pause", "missing-setup", "scoped-stop", "suggestion-pause", "daily-exhausted", "pacing-text", "weekly-recap", "burning-fast", "burning-rising"]
   // Exact names that may be pressed: the pin, unpin and Settings toolbar tabs. Nothing that sends a
   // backend command, opens a browser or a share sheet, or quits.
   static let pressable: Set<String> = ["Keep Peras open", "Unpin Peras", "General", "Notifications", "More"]

@@ -3,7 +3,10 @@ import path from "node:path";
 import { perasHome } from "./store.mjs";
 
 const file = env => path.join(perasHome(env), "events.jsonl");
-export function recordEvent(env, { kind, message, provider = env.PERAS_PROVIDER === "codex" ? "codex" : "claude", at = Date.now() }) {
+/** A burn line's numbers, kept beside its message so the recap never reads the sentence. */
+export const burnData = (h) => (h?.kind === "rate" ? { kind: "rate", window: h.window, rise: h.rise, span: h.span ?? 10, since: h.since ?? null, action: h.action } : undefined);
+
+export function recordEvent(env, { kind, message, provider = env.PERAS_PROVIDER === "codex" ? "codex" : "claude", at = Date.now(), data }) {
   try {
     const target = file(env);
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
@@ -12,7 +15,7 @@ export function recordEvent(env, { kind, message, provider = env.PERAS_PROVIDER 
     if (fs.existsSync(target) && fs.statSync(target).size > 512 * 1024) {
       try { fs.renameSync(target, `${target}.previous`); } catch { /* Another writer rotated first. */ }
     }
-    fs.appendFileSync(target, `${JSON.stringify({ at, provider, kind, message: String(message).slice(0, 1000) })}\n`, { mode: 0o600 });
+    fs.appendFileSync(target, `${JSON.stringify({ at, provider, kind, message: String(message).slice(0, 1000), ...(data ? { data } : {}) })}\n`, { mode: 0o600 });
   } catch { /* History must never prevent pause enforcement. */ }
 }
 /** Since when the kept history is whole: 0 before the first rotation, then the oldest kept event. */

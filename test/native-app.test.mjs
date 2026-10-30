@@ -9,6 +9,9 @@ import { main } from "../src/cli.mjs";
 import { sandbox, tempDir, VERSION } from "./helpers.mjs";
 import { announceBridge, appPath, handshake, installApp, liveMenu, quarantined, recoverInstall, rollbackDir, translocatedPaths } from "../src/native-app.mjs";
 import { runProtectionTest } from "../src/protection-test.mjs";
+import { updateBackup } from "../src/update-backup.mjs";
+import { launchFile } from "../src/node-runtime.mjs";
+import { settingsPath } from "../src/settings.mjs";
 
 const BIN = new URL("../bin/peras.mjs", import.meta.url).pathname;
 
@@ -476,4 +479,129 @@ test("doctor names an app installed with its quarantine and the command that rei
   const { code, text } = await run(env, ["doctor"]);
   assert.equal(code, 1);
   assert.match(text, /✗ the Peras app runs from a temporary copy macOS makes, so it can't open at login: run `peras menubar install --native --app .*native\/Peras\.app`/);
+});
+
+test("setup refuses a CLI from another line than the installed app, and changes nothing", async () => {
+  const { env } = sandbox();
+  const plant = (version) => {
+    const app = appPath(env);
+    fs.mkdirSync(path.join(app, "Contents"), { recursive: true });
+    fs.writeFileSync(path.join(app, "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${version}</string></dict></plist>`);
+  };
+  const [major, minor] = VERSION.split(".").map(Number);
+  const lines = [];
+  const say = (line) => lines.push(line);
+  plant(`${major}.${minor - 1}.9`);
+  for (const args of [["setup"], ["codex", "setup"], ["menubar", "install", "--native"]]) {
+    lines.length = 0;
+    assert.equal(await main(args, { env, out: say }), 1, args.join(" "));
+    assert.match(lines.join("\n"), new RegExp(`Your Peras app is ${major}\\.${minor - 1}\\.9, and Peras .* needs the Peras ${major}\\.${minor} app.*Nothing was changed\\.`), args.join(" "));
+  }
+  assert.equal(fs.existsSync(settingsPath(env)), false, "Claude settings untouched");
+  assert.equal(fs.existsSync(path.join(env.PERAS_HOME, "app")), false, "no runtime installed");
+  plant(`${major}.${minor + 1}.0`);
+  lines.length = 0;
+  assert.equal(await main(["setup"], { env, out: say }), 1);
+  assert.match(lines.join("\n"), /newer than this Peras.*Nothing was changed\./);
+  // An app of the new line on its way (`update --app`) lets setup go ahead.
+  const incoming = path.join(tempDir("peras-incoming-"), "Peras.app");
+  fs.mkdirSync(path.join(incoming, "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(incoming, "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${VERSION}</string></dict></plist>`);
+  assert.equal(await main(["setup"], { env: { ...env, PERAS_INCOMING_APP: incoming }, out: () => {} }), 0);
+  plant(VERSION);
+  assert.equal(await main(["codex", "setup"], { env, out: () => {} }), 0, "same line goes ahead");
+});
+
+test("an older app's own update goes ahead: 0.4's update --app runs the new setup before it installs the new app", async () => {
+  const { env } = sandbox();
+  const [major, minor] = VERSION.split(".").map(Number);
+  const app = appPath(env);
+  fs.mkdirSync(path.join(app, "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(app, "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${major}.${minor - 1}.0</string></dict></plist>`);
+  const home = env.PERAS_HOME;
+  // The same backup 0.4.1's update takes before it runs setup (src/update.mjs there).
+  const withoutApp = updateBackup([settingsPath(env), path.join(home, "app")], home, { runtime: path.join(home, "app") });
+  assert.equal(await main(["setup"], { env, out: () => {} }), 1, "an update that doesn't replace the app");
+  withoutApp.discard();
+  const backup = updateBackup([settingsPath(env), path.join(home, "app"), launchFile(env), app, `${app}.previous`], home, { runtime: path.join(home, "app") });
+  assert.equal(await main(["setup"], { env, out: () => {} }), 0, "the app is being replaced in this update");
+  const old = new Date(Date.now() - 20 * 60_000);
+  fs.utimesSync(path.join(backup.dir, "manifest.json"), old, old);
+  assert.equal(await main(["setup"], { env, out: () => {} }), 1, "a backup left over from an old update");
+  backup.discard();
+  assert.equal(await main(["codex", "setup"], { env, out: () => {} }), 1);
+});
+
+test("an app from another line installed by hand that fails to install leaves the old app's runtime as it was", async () => {
+  const { env } = sandbox();
+  const { writeLaunchRecord } = await import("../src/node-runtime.mjs");
+  const [major, minor] = VERSION.split(".").map(Number);
+  const plist = (app, version) => {
+    fs.mkdirSync(path.join(app, "Contents"), { recursive: true });
+    fs.writeFileSync(path.join(app, "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${version}</string></dict></plist>`);
+  };
+  plist(appPath(env), `${major}.${minor - 1}.0`);
+  writeLaunchRecord(env, { cli: "/old/app/bin/peras.mjs", runtimeVersion: `${major}.${minor - 1}.1` });
+  const before = fs.readFileSync(launchFile(env), "utf8");
+  const incoming = path.join(tempDir("peras-incoming-"), "Peras.app");
+  plist(incoming, VERSION);
+  const lines = [];
+  const code = await main(["menubar", "install", "--native", "--app", incoming], { env, out: (l) => lines.push(l), nativeApp: {
+    verify: () => ({ ok: false, reason: "signature invalid" }), quarantined: () => false, running: () => false, quit: () => {},
+    launch: () => { throw new Error("must not launch"); }, clock: Date.now, sleep: async () => {}, timeoutMs: 0, firstOpenTimeoutMs: 0,
+  } });
+  assert.equal(code, 1, lines.join("\n"));
+  assert.equal(fs.readFileSync(launchFile(env), "utf8"), before, "the launch record is the old app's");
+  assert.deepEqual(fs.readdirSync(env.PERAS_HOME).filter((n) => n.startsWith(".peras-update-")), [], "no backup left behind");
+});
+
+test("a failed install of a new line's app leaves the old line's hooks alone: they're updated only once the app is in", async () => {
+  const { env } = sandbox();
+  const { readInstall, writeInstall } = await import("../src/store.mjs");
+  const [major, minor] = VERSION.split(".").map(Number);
+  const oldVersion = `${major}.${minor - 1}.1`;
+  assert.equal(await main(["setup"], { env, out: () => {} }), 0);
+  writeInstall(env, { ...readInstall(env), version: oldVersion });
+  const hooks = fs.readFileSync(settingsPath(env), "utf8");
+  const plist = (app, version) => {
+    fs.mkdirSync(path.join(app, "Contents"), { recursive: true });
+    fs.writeFileSync(path.join(app, "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${version}</string></dict></plist>`);
+  };
+  plist(appPath(env), `${major}.${minor - 1}.0`);
+  const incoming = path.join(tempDir("peras-incoming-"), "Peras.app");
+  plist(incoming, VERSION);
+  const lines = [];
+  const code = await main(["menubar", "install", "--native", "--app", incoming], { env, out: (l) => lines.push(l), nativeApp: {
+    verify: () => ({ ok: false, reason: "signature invalid" }), quarantined: () => false, running: () => false, quit: () => {},
+    launch: () => { throw new Error("must not launch"); }, clock: Date.now, sleep: async () => {}, timeoutMs: 0, firstOpenTimeoutMs: 0,
+  } });
+  assert.equal(code, 1, lines.join("\n"));
+  assert.equal(readInstall(env).version, oldVersion, "the hooks still run the old line, which the old app can talk to");
+  assert.equal(fs.readFileSync(settingsPath(env), "utf8"), hooks);
+  assert.doesNotMatch(lines.join("\n"), /Updated the hooks/);
+});
+
+test("when putting the old app's runtime back fails too, the backup is kept and named", async () => {
+  const { env } = sandbox();
+  const { writeLaunchRecord } = await import("../src/node-runtime.mjs");
+  const [major, minor] = VERSION.split(".").map(Number);
+  const plist = (app, version) => {
+    fs.mkdirSync(path.join(app, "Contents"), { recursive: true });
+    fs.writeFileSync(path.join(app, "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${version}</string></dict></plist>`);
+  };
+  plist(appPath(env), `${major}.${minor - 1}.0`);
+  writeLaunchRecord(env, { cli: "/old/app/bin/peras.mjs", runtimeVersion: `${major}.${minor - 1}.1` });
+  const incoming = path.join(tempDir("peras-incoming-"), "Peras.app");
+  plist(incoming, VERSION);
+  const backups = () => fs.readdirSync(env.PERAS_HOME).filter((n) => n.startsWith(".peras-update-"));
+  const lines = [];
+  const code = await main(["menubar", "install", "--native", "--app", incoming], { env, out: (l) => lines.push(l), nativeApp: {
+    // The saved launch record goes missing, so the restore can't finish.
+    verify: () => { for (const dir of backups()) for (const n of fs.readdirSync(path.join(env.PERAS_HOME, dir))) if (n !== "manifest.json") fs.rmSync(path.join(env.PERAS_HOME, dir, n), { recursive: true, force: true }); return { ok: false, reason: "signature invalid" }; },
+    quarantined: () => false, running: () => false, quit: () => {},
+    launch: () => { throw new Error("must not launch"); }, clock: Date.now, sleep: async () => {}, timeoutMs: 0, firstOpenTimeoutMs: 0,
+  } });
+  assert.equal(code, 1, lines.join("\n"));
+  assert.equal(backups().length, 1, "the backup stays");
+  assert.match(lines.join("\n"), /Restoring the old app's runtime failed too .*Backup kept at .*\.peras-update-/);
 });

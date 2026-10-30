@@ -57,6 +57,7 @@ test("macOS notification bundle uses the pear instead of the compiler's asset ca
   assert.equal(result.icon, "Peras.icns");
   assert.deepEqual(result.declaredCategories.PERAS_PAUSE, ["PERAS_STATUS", "PERAS_RESUME"]);
   assert.deepEqual(result.declaredCategories.PERAS_REMINDER, ["PERAS_STATUS", "PERAS_SNOOZE"]);
+  assert.deepEqual(result.declaredCategories.PERAS_BURN, ["PERAS_STATUS", "PERAS_PAUSE_NOW"]);
   assert.equal(result.executable, await fs.realpath(path.join(app, "Contents", "MacOS", "Peras")));
   assert.equal(await prepareNotificationApp(path.join(root, "sender"), () => { throw new Error("must reuse finished bundle"); }, { bundleIdentifier }), app);
 });

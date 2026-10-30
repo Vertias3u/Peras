@@ -28,6 +28,42 @@ enum RecapChecks {
     let now = snapshot.generatedAtMs
     let recap = WeeklyRecap(provider, generatedAtMs: now, nowMs: now)!
     try check(recap.caption == "Last week: 88% used, never paused, 12% to spare", "actual fixture caption uses exact backend reset facts")
+    func withBurns(_ value: JSONValue?) throws -> WeeklyRecap? {
+      guard case .object(var fields) = provider.payload["recap"] else { return nil }
+      fields.removeValue(forKey: "burns")
+      if let value { fields["burns"] = value }
+      let payload = PresentationChecks.replacing(provider.payload, "recap", .object(fields))
+      let rows = [payload] + snapshot.providers.dropFirst().map(\.payload)
+      let decoded = try Snapshot.decode(JSONEncoder().encode(PresentationChecks.replacing(snapshot.raw, "providers", .array(rows))))
+      try check(decoded.providers.count == snapshot.providers.count && decoded.providers[0].windows == provider.windows, "recap burns preserve snapshot and usage")
+      return WeeklyRecap(decoded.providers[0], generatedAtMs: now, nowMs: now)
+    }
+    let biggest: JSONValue = .object(["rise": .number(22), "minutes": .number(6)])
+    let burns: JSONValue = .object(["count": .number(2), "biggest": biggest])
+    let invalid: [JSONValue?] = [nil, .null, .string("bad"), .array([]), .object([:])]
+      + [("count", JSONValue.number(-1)), ("count", .string("2")), ("count", .number(1.5)),
+        ("biggest", .bool(false)), ("biggest", .object([:])),
+        ("biggest", PresentationChecks.replacing(biggest, "rise", .number(-1))),
+        ("biggest", PresentationChecks.replacing(biggest, "rise", .string("22"))),
+        ("biggest", PresentationChecks.replacing(biggest, "minutes", .number(0))),
+        ("biggest", PresentationChecks.replacing(biggest, "minutes", .number(1.5))),
+        ("biggest", PresentationChecks.replacing(biggest, "minutes", .string("6")))].map { PresentationChecks.replacing(burns, $0.0, $0.1) }
+    for value in invalid {
+      let decoded = try withBurns(value)
+      try check(decoded != nil && decoded?.burns == nil && decoded?.caption == recap.caption && decoded?.privateHelp == recap.privateHelp,
+        "absent/null/malformed burns leave the entire recap intact")
+    }
+    let pluralBurns = try withBurns(burns)
+    try check(pluralBurns?.caption == recap.caption + ", 2 burns stopped, biggest +22 in 6 min"
+      && pluralBurns?.privateHelp == pluralBurns?.caption, "plural burns caption includes biggest and consistent private help")
+    let singularBurns = try withBurns(.object(["count": .number(1), "biggest": .null]))
+    try check(singularBurns?.caption == recap.caption + ", 1 burn stopped", "singular burns caption without biggest")
+    let zeroBurns = try withBurns(PresentationChecks.replacing(burns, "count", .number(0)))
+    try check(zeroBurns?.caption == recap.caption, "zero burns add nothing even with biggest")
+    let nonReset = ProviderSnapshot(id: provider.id, payload: PresentationChecks.replacing(provider.payload, "recap",
+      PresentationChecks.replacing(PresentationChecks.replacing(provider.payload["recap"], "burns", burns), "atReset", .bool(false))))
+    let nonResetRecap = WeeklyRecap(nonReset, generatedAtMs: now, nowMs: now)
+    try check(nonResetRecap?.privateHelp.contains("2 burns stopped, biggest +22 in 6 min. ") == true, "private help keeps burn facts before last-reading time")
     let canaries = try canaries(options: options)
     try check(canaries.count == 2 && canaries[0].caption.contains("paused 27×") && !canaries[1].caption.contains("paused") && !canaries[1].caption.contains("spare"), "unknown pause coverage and non-reset spare omitted")
     try check(!canaries[1].caption.contains(":00") && canaries[1].privateHelp.contains("% at "), "last-reading time belongs only in private help")

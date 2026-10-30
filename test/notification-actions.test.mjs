@@ -111,3 +111,46 @@ test('a reminder snoozed from a ticket is the one the native bridge monitor read
   record(NOW+3601_000);checkUnusedReminders(env,await rows(NOW+3601_000),NOW+3601_000,notify);assert.equal(sent.length,2,'back after the hour, once');
  }
 });
+test('a burn warning pauses its own provider once, within the hour, and nothing else can pause',async()=>{
+ const {env,root}=sandbox(),scoped=codexEnv(env);
+ const id=createActionTicket(root,env,{provider:'codex',category:'burn'},NOW),file=path.join(root,'actions',id+'.json');
+ assert.deepEqual(await handleNotificationAction(file,'PERAS_PAUSE_NOW',{now:NOW+1000}),{paused:true,provider:'codex'});
+ assert.ok(readState(scoped,NOW+1000).manualPause);assert.equal(readState(env,NOW+1000).manualPause,null,'Claude is untouched');
+ assert.deepEqual(await handleNotificationAction(file,'PERAS_PAUSE_NOW',{now:NOW+2000}),{alreadyHandled:true});
+ const late=createActionTicket(root,env,{provider:'claude',category:'burn'},NOW);
+ await assert.rejects(handleNotificationAction(path.join(root,'actions',late+'.json'),'PERAS_PAUSE_NOW',{now:NOW+3601_000}),/over an hour old/);
+ const status=createActionTicket(root,env,{provider:'claude',category:'status'},NOW);
+ await assert.rejects(handleNotificationAction(path.join(root,'actions',status+'.json'),'PERAS_PAUSE_NOW',{now:NOW}),/Only a burn warning/);
+ await assert.rejects(handleNotificationAction(file,'PERAS_RESUME',{now:NOW}),/cannot resume/,'a burn ticket never resumes');
+ assert.equal(readState(env,NOW+5000).manualPause,null);
+});
+test('the hooks send a burn warning as a burn notification and a burn pause as a pause',async()=>{
+ const {env,root}=sandbox();const sent=[];
+ const {writeUsage}=await import('../src/usage.mjs');const {writeRules}=await import('../src/store.mjs');const {DEFAULT_RULES}=await import('../src/rules.mjs');
+ const resetsAt=(NOW+4*3600_000)/1000;
+ writeUsage(env,{v:1,windows:{five_hour:{resetsAt,pts:[[NOW-2*60_000,4],[NOW,26]]}},weeks:[],blame:null});
+ recordReading(env,{five_hour:{usedPct:26,resetsAt,seenAt:NOW},seven_day:{usedPct:30,resetsAt:resetsAt+86400,seenAt:NOW}});
+ runHook({env,now:NOW,input:{hook_event_name:'PreToolUse',session_id:'s',tool_name:'Bash'},notify:(t,b,o)=>sent.push(o.category)});
+ writeRules(env,[...DEFAULT_RULES,{kind:'rate',window:'five_hour',at:15,span:5,action:'pause'}]);
+ runHook({env,now:NOW+1000,input:{hook_event_name:'PreToolUse',session_id:'s',tool_name:'Bash'},notify:(t,b,o)=>sent.push(o.category)});
+ assert.deepEqual(sent,['burn','pause']);
+});
+test('a burn whose first tool call is a subagent is a burn notification, not a pause, in both hooks',async()=>{
+ const {recentEvents}=await import('../src/events.mjs');const {writeUsage}=await import('../src/usage.mjs');
+ const resetsAt=(NOW+4*3600_000)/1000;
+ const claude=sandbox(),sent=[];
+ writeUsage(claude.env,{v:1,windows:{five_hour:{resetsAt,pts:[[NOW-2*60_000,4],[NOW,26]]}},weeks:[],blame:null});
+ recordReading(claude.env,{five_hour:{usedPct:26,resetsAt,seenAt:NOW},seven_day:{usedPct:30,resetsAt:resetsAt+86400,seenAt:NOW}});
+ const out=runHook({env:claude.env,now:NOW,input:{hook_event_name:'PreToolUse',session_id:'s',tool_name:'Agent'},notify:(t,b,o)=>sent.push(o.category)});
+ assert.equal(out.hookSpecificOutput.permissionDecision,'deny','the subagent is refused');
+ assert.deepEqual(sent,['burn']);
+ assert.deepEqual(recentEvents(claude.env).map(e=>e.kind).sort(),['warning','warning']);
+ const codex=sandbox(),posted=[];let pct=4,now=NOW;
+ const reader=async()=>({rateLimits:{primary:{usedPercent:pct,windowDurationMins:300,resetsAt},secondary:{usedPercent:30,windowDurationMins:10080,resetsAt:resetsAt+86400}}});
+ await runCodexHook({env:codex.env,now,reader,force:true,input:{hook_event_name:'PreToolUse',session_id:'c',tool_name:'Bash'},notify:()=>{}});
+ pct=26;now+=2*60_000;
+ const denied=await runCodexHook({env:codex.env,now,reader,force:true,input:{hook_event_name:'PreToolUse',session_id:'c',tool_name:'spawn_agent'},notify:(t,b,o)=>posted.push([o.category,b])});
+ assert.equal(denied.hookSpecificOutput.permissionDecision,'deny');
+ assert.deepEqual(posted.map(p=>p[0]),['burn']);assert.match(posted[0][1],/^Warning: new subagents held/);
+ assert.ok(!recentEvents(codexEnv(codex.env)).some(e=>e.kind==='pause'),'no pause in the recap');
+});

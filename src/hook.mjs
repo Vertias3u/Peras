@@ -1,11 +1,13 @@
+import { releaseSpawn, spawnContext } from "./spawn.mjs";
+import { withDelegation } from "./delegate.mjs";
 import { touchAllowanceSession } from "./allowances.mjs";
-import { WINDOWS, resetTime } from "./window.mjs";
+import { WINDOWS, emptyIn, resetTime } from "./window.mjs";
 import { evaluate, realDir } from "./rules.mjs";
 import { context, readInstall, readState, resumableKeys, writeHookState } from "./store.mjs";
 import { readUsage } from "./usage.mjs";
 import { recordHookRun } from "./hook-health.mjs";
 import { preferences } from "./preferences.mjs";
-import { recordEvent } from "./events.mjs";
+import { burnData, recordEvent } from "./events.mjs";
 import { recordDenial } from "./receipts.mjs";
 
 // One command hook on three events (the same three PassControl gates):
@@ -48,6 +50,26 @@ export function describe(hit, now) {
         lifts: `It lifts when the pace slows or at ${reset}`,
       };
     }
+    case "rate": {
+      const empty = Number.isFinite(hit.emptyAtMs) && hit.emptyAtMs > now ? hit.emptyAtMs : null;
+      return {
+        what: `${name} usage rose ${Math.round(hit.rise)} points within ${hit.span} minutes, past the ${hit.at}-point rate line${during}${empty ? `. At that rate the ${name} window empties ${emptyIn(empty, now, { long: true })}` : ""}`,
+        short: `${name} burning fast: +${Math.round(hit.rise)} points within ${hit.span} min${empty ? `, empty ${emptyIn(empty, now)}` : ""}`,
+        lifts: hit.action === "warn" ? "It clears when the burst ends" : `It holds until you resume or the ${name} window resets at ${reset}`,
+      };
+    }
+    case "agents":
+      return {
+        what: hit.at === 0 ? `the subagent line is 0, so no subagents start${during}` : `this prompt has already started ${hit.before} subagent${hit.before === 1 ? "" : "s"}, reaching the line of ${hit.at}${during}`,
+        short: `${hit.before} subagent${hit.before === 1 ? "" : "s"} this prompt (line ${hit.at})`,
+        lifts: "It lifts at your next prompt",
+      };
+    case "spawnhold":
+      return {
+        what: `new subagents are held while usage is burning fast (${name} +${Math.round(hit.rise)} points within ${hit.span} minutes)`,
+        short: "new subagents held",
+        lifts: "It lifts when the burst ends or you resume",
+      };
     case "prompt":
       return {
         what: `this prompt raised ${name} usage by ${Math.round(hit.rise)} points, past the ${hit.at}-point allowance per prompt${during}`,
@@ -66,6 +88,11 @@ export function describe(hit, now) {
 const toClaude = (d) =>
   `The user's usage guard (Peras) has paused tool use: ${d.what}. Do not retry or work around this. Stop and tell the user why you stopped.`;
 
+export const spawnOnly = (hit) => hit?.kind === "agents" || hit?.kind === "spawnhold";
+// Only a new subagent is refused: the turn goes on without it.
+export const holdSpawn = (d) => ({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny",
+  permissionDecisionReason: `The user's usage guard (Peras) is not starting new subagents: ${d.what}. Continue without new subagents, or tell the user why you can't.` } });
+
 function pauseFor(event, d, resumeHint) {
   const stopReason = `Peras paused Claude Code: ${d.what}. ${d.lifts}, or type: ! ${resumeHint}`;
   if (event === "PreToolUse") {
@@ -77,8 +104,6 @@ function pauseFor(event, d, resumeHint) {
   }
   return { continue: false, stopReason, decision: "block", reason: toClaude(d) };
 }
-
-const hasKind = (rules, kind) => rules.some((r) => r.kind === kind);
 
 /**
  * @param {{ input: object, env?: object, now?: number, notify?: (title: string, body: string) => void }} options
@@ -104,7 +129,7 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
     }
 
     // A prompt line measures from the moment the user sent the prompt.
-    if (event === "UserPromptSubmit" && hasKind(ctx.rules, "prompt") && session) {
+    if (event === "UserPromptSubmit" && session) {
       state.prompts[session] = {
         id: now.toString(36),
         t: now,
@@ -114,16 +139,26 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
       changed = true;
     }
 
-    const { action, hit, hits } = evaluate(ctx);
+    ctx.spawn = { ...spawnContext(state, session, "claude", input, env, now), sessionStart: state.sessions[session]?.startedAt, session };
+    if (ctx.spawn.blocked) return holdSpawn({ what: ctx.spawn.blocked });
+    if (ctx.spawn.isSpawn) changed = true;
+    const { action, hit, hits, rateLatch } = evaluate(ctx);
+    if (JSON.stringify(rateLatch) !== JSON.stringify(state.rateLatch)) {
+      state.rateLatch = rateLatch;
+      changed = true;
+    }
+    ctx.rateLatch = rateLatch;
     const d = action === "none" ? null : describe(hit, now);
     let resumeHint = "peras resume";
     try { resumeHint = readInstall(env)?.resumeHint || resumeHint; } catch { /* the default hint */ }
     const askNow = action === "ask" && event === "PreToolUse" && !(state.asked[session] ?? []).includes(hit.key);
-    if (action === "pause" && (event === "PreToolUse" || event === "PostToolBatch")) decided = pauseFor(event, d, resumeHint);
+    if (action === "pause" && event === "PreToolUse" && spawnOnly(hit)) decided = holdSpawn(d);
+    else if (action === "pause" && (event === "PreToolUse" || event === "PostToolBatch")) decided = pauseFor(event, d, resumeHint);
     // Only a denied tool call is a receipt; an ask can still be approved.
     if (action === "pause" && event === "PreToolUse") recordDenial(env, hit, now);
     else if (action === "pause" && event === "UserPromptSubmit") decided = { systemMessage: `Peras: tool use is paused (${d.short}). Your message goes through, but tools stay paused. ${d.lifts}, or type: ! ${resumeHint}` };
     else if (askNow) decided = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `Peras: ${d.what}. Let Claude keep using tools? Peras asks once per session.` } };
+    if (decided) releaseSpawn(state, session, ctx.spawn, env);
     recordHookRun(env, event, now);
     const latched = hits.filter((h) => h.kind === "pace").map((h) => h.key);
     if (latched.join() !== state.latched.join()) {
@@ -132,11 +167,12 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
     }
     if (action === "none") {
       if (changed) writeHookState(env, state, now);
-      return null;
+      return withDelegation(null, { provider: "claude", input, env, now });
     }
 
     const lines = [];
     const notificationLines = [];
+    let burnWarned = false, paused = false;
     const notificationPreferences = preferences(env);
     let out = decided;
 
@@ -148,10 +184,14 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
       state.notified.push(tag);
       changed = true;
       const hd = describe(h, now);
-      if (h.kind !== "manual") recordEvent(env, { kind: h.action === "warn" ? "warning" : "pause", at: now, message: `${hd.what}. ${hd.lifts}.` });
-      const text = h.action === "pause" ? `Paused: ${hd.short}. ${hd.lifts}, or type ! ${resumeHint}` : `${hd.short}.`;
+      // A refused subagent isn't a pause: the agent goes on without it.
+      const pause = h.action === "pause" && !spawnOnly(h);
+      if (h.kind !== "manual") recordEvent(env, { kind: pause ? "pause" : "warning", at: now, message: `${hd.what}. ${hd.lifts}.`, data: burnData(h) });
+      const text = pause ? `Paused: ${hd.short}. ${hd.lifts}, or type ! ${resumeHint}` : `${hd.short}.`;
       lines.push(text);
-      if (notificationPreferences[h.action === "pause" ? "pauses" : "warnings"]) notificationLines.push(text);
+      if (notificationPreferences[pause ? "pauses" : "warnings"]) notificationLines.push(text);
+      if (pause) paused = true;
+      if ((h.kind === "rate" && h.action === "warn") || h.kind === "spawnhold") burnWarned = true;
     }
 
     if (askNow) {
@@ -162,13 +202,13 @@ export function runHook({ input, env = process.env, now = Date.now(), notify = (
       const text = `Claude Code is waiting for your OK: ${d.short}.`;
       lines.unshift(text);
       if (notificationPreferences.pauses) notificationLines.unshift(text);
-      recordEvent(env, { kind: "approval", at: now, message: text });
+      recordEvent(env, { kind: "approval", at: now, message: text, data: burnData(hit) });
     }
     if (!out && lines.length) out = { systemMessage: `Peras: ${lines.join(" ")}` };
-    if (notificationLines.length) notify("Peras 🍐", notificationLines.join("\n"), { env, provider: "claude", category: action === "pause" || action === "ask" ? "pause" : "status", pauseKeys: resumableKeys(ctx, state) });
+    if (notificationLines.length) notify("Peras 🍐", notificationLines.join("\n"), { env, provider: "claude", category: paused || askNow ? "pause" : burnWarned ? "burn" : "status", pauseKeys: resumableKeys(ctx, state) });
 
     if (changed) writeHookState(env, state, now);
-    return out;
+    return withDelegation(out, { provider: "claude", input, env, now });
   } catch (error) {
     if (decided) return decided;
     if (strict) throw error;

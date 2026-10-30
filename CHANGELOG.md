@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0 (2026-10-30)
+
+- **Burn lines.** `peras set 5h rate 15/5m pause` acts when a window rises 15 points within 5 minutes, at any level, so an agent that empties its 5-hour window in minutes is stopped on the way up instead of at 95%. A pause holds until you resume or the window resets; `peras resume` lets that burst go, and a new burst can stop it again. A warning clears when the burst ends. New default: 5-hour +20 points in 10 minutes → warn.
+- **New subagents wait during a burn.** While any burn line is crossed, Claude Code's `Agent` and Codex's `spawn_agent` calls are refused and the agent goes on without them. `peras resume` lifts it.
+- **Subagent lines.** `peras set agents 3 ask` acts on one prompt's 4th subagent. Subagents' own tool calls run under the parent's session, so a whole tree counts as one prompt. The next prompt starts fresh.
+- **Agent to agent.** Claude Code running `codex exec` while Codex is paused is refused with Codex's reason, and Codex running `claude -p` while Claude Code is paused likewise. Past a warning line, the call goes ahead with a one-line note. Commands are matched as typed: a wrapper script or alias isn't caught.
+- During a burn, or with a burn line set, Codex's hooks read usage at most 10 seconds old instead of a minute. On Claude Code 2.1.97 and later, setup asks the status line to re-run every 10 seconds (a shorter interval of yours stays).
+- A burn warning's notification has a **Pause now** button. A refused subagent is told as a warning, not counted as a pause.
+- **In the app:** a burn badge beside the bar ("+22 in 2 min") while a window climbs fast, "3 subagents this prompt" under the agent, settings rows for burn and subagent lines, and "2 burns stopped, biggest +22 in 6 min" in the weekly recap.
+- **When it empties.** While a window burns, the app adds a line under the bars saying when it empties at that rate ("5-hour window empty in ~7 min at this rate"). A burn stop tells the agent and the notification the same: "At that rate the 5-hour window empties in about 7 minutes." It's an estimate from the burst, and it isn't shown when the window resets first.
+- **Codex saved resets.** `peras status` and the app's Codex row show saved Codex resets and when the next one expires. A notification comes a day before one expires (under Warnings), and a Codex stop for usage mentions it so the agent can tell you. Peras never spends one.
+- On a Homebrew install, `peras update` says to run `brew upgrade peras`, then `peras setup`, instead of installing a second copy with npm, and `peras doctor` says how it was installed.
+- `peras setup` stops, changing nothing, when the installed Peras app is from another version line: the 0.4 app can't run 0.5. The 0.5 app comes with your purchase.
+- Going back to 0.4 keeps working: 0.4 ignores the new lines and state. Running 0.4's `peras set` removes the new lines from the config.
+
 ## 0.4.1 (2026-10-20)
 
 - The downloaded Peras app now runs from where Peras installs it. 0.4.0 copied the download with macOS's quarantine flag, so macOS ran the app from a temporary copy: it couldn't open at login, and `peras menubar quit` and `peras update --app` couldn't find it. `peras menubar install --native --app` now installs an app Gatekeeper accepts without that flag; an app Gatekeeper doesn't accept keeps it, so macOS still checks it. Installed with 0.4.0? Run `peras update`, then `peras menubar install --native --app ~/.peras/native/Peras.app`. `peras doctor` says so when it's needed. The app itself is unchanged.

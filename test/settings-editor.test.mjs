@@ -81,3 +81,27 @@ test('editor configures pacing, switches profiles and grants/revokes scoped extr
  await save({op:'extra-revoke',id:grant.id});assert.equal(readPlanning(env).extras.length,0);
  const s=await state();assert.deepEqual(s.claude.profiles.names,['Heavy work','Normal day']);
 });
+
+test("editor saves, edits and deletes burn lines and subagent lines",async t=>{
+ const {env}=sandbox();const app=await startSettingsServer({env,now:()=>NOW,getSnapshots:async()=>[]});t.after(()=>app.close());
+ const headers={Authorization:`Bearer ${app.token}`,Origin:app.origin,"Content-Type":"application/json"};
+ const state=()=>fetch(app.origin+"/api/state",{headers}).then(r=>r.json());
+ const save=async body=>{const current=await state();return fetch(app.origin+"/api/save",{method:"POST",headers,body:JSON.stringify({revision:current.revision,...body})})};
+ const rates=()=>readRules(codexEnv(env)).filter(r=>r.kind==="rate");
+ assert.equal((await save({provider:"codex",op:"rule",rule:{kind:"rate",window:"five_hour",at:15,span:5,action:"pause"}})).status,200);
+ assert.equal(rates().length,2,"the default warn line and the new pause line");
+ assert.equal((await save({provider:"codex",op:"rule",rule:{kind:"rate",window:"five_hour",at:15,span:30,action:"pause"}})).status,200);
+ assert.equal(rates().length,3,"another span is another line");
+ // Edit with the rule exactly as the page got it from /api/state.
+ const original=(await state()).codex.rules.find(r=>r.kind==="rate"&&r.span===5);
+ assert.equal((await save({provider:"codex",op:"rule",rule:{...original,at:12},original})).status,200);
+ assert.deepEqual(rates().map(r=>[r.at,r.span,r.action]).sort(),[[12,5,"pause"],[15,30,"pause"],[20,10,"warn"]]);
+ assert.equal((await save({provider:"claude",op:"rule",rule:{kind:"agents",at:3,action:"ask"}})).status,200);
+ const agents=(await state()).claude.rules.find(r=>r.kind==="agents");
+ assert.deepEqual(agents,{kind:"agents",at:3,action:"ask"});
+ assert.equal((await save({provider:"claude",op:"rule",rule:{...agents,at:4},original:agents})).status,200);
+ assert.equal(readRules(env).find(r=>r.kind==="agents").at,4);
+ assert.equal((await save({provider:"claude",op:"delete-rule",rule:readRules(env).find(r=>r.kind==="agents")})).status,200);
+ assert.ok(!readRules(env).some(r=>r.kind==="agents"));
+ assert.equal((await save({provider:"codex",op:"rule",rule:{kind:"rate",window:"five_hour",at:15,span:0,action:"pause"}})).status,400,"span 0 is refused");
+});

@@ -225,3 +225,39 @@ test("update --app restores the previous CLI locally when the new app fails to i
   assert.deepEqual(f.installs, ["0.5.1"]);
   assert.equal(JSON.parse(fs.readFileSync(path.join(f.globalRoot, "package.json"))).version, "0.4.0");
 });
+
+test("a Homebrew install is upgraded by brew: update only says how, and npm installs nothing", async () => {
+  const f = fixture();
+  const keg = path.join(f.root, "homebrew", "Cellar", "peras", "0.2.0", "libexec", "lib", "node_modules", "peras-cli");
+  fs.mkdirSync(keg, { recursive: true });
+  const checked = await f.invoke({ root: keg, check: true });
+  assert.deepEqual([checked.available, checked.homebrew], [true, true]);
+  assert.ok(f.messages.some((text) => text.includes(`Update available: 0.2.0 → ${VERSION}. Peras was installed with Homebrew: run brew upgrade peras, then peras setup.`)));
+  await assert.rejects(f.invoke({ root: keg }), /^Error: Peras was installed with Homebrew: run brew upgrade peras, then peras setup\. Nothing was changed\.$/);
+  assert.deepEqual(f.calls.map((c) => c.args[0]), ["view", "view"], "no npm root, no npm install");
+  assert.equal(fs.existsSync(f.globalRoot), false);
+  // A link into the keg counts too; an npm prefix that merely contains "peras" does not.
+  const link = path.join(f.root, "opt-peras");
+  fs.symlinkSync(keg, link);
+  await assert.rejects(f.invoke({ root: link }), /installed with Homebrew/);
+  const { homebrewInstall } = await import("../src/update.mjs");
+  assert.equal(homebrewInstall(path.join(f.root, "Cellar", "perasite", "1", "x")), false);
+  assert.equal(homebrewInstall(ROOT), false);
+});
+
+test("a Homebrew install with an app held on the older line is told to get the new app first, never a bare brew upgrade", async () => {
+  const f = fixture();
+  const [major, minor] = VERSION.split(".").map(Number);
+  const appVersion = `${major}.${minor - 1}.0`;
+  fs.mkdirSync(path.join(appPath(f.env), "Contents"), { recursive: true });
+  fs.writeFileSync(path.join(appPath(f.env), "Contents", "Info.plist"), `<plist><dict><key>PerasRuntimeVersion</key><string>${appVersion}</string></dict></plist>`);
+  const keg = path.join(f.root, "homebrew", "Cellar", "peras", appVersion, "libexec", "lib", "node_modules", "peras-cli");
+  fs.mkdirSync(keg, { recursive: true });
+  const checked = await f.invoke({ root: keg, version: appVersion, check: true });
+  assert.deepEqual([checked.available, checked.held, checked.homebrew], [true, VERSION, true]);
+  const text = f.messages.join("\n");
+  assert.match(text, new RegExp(`needs the Peras ${major}\\.${minor} app, and yours is ${appVersion.replace(/\./g, "\\.")}; Homebrew installs only the newest Peras\\. Download the new app .* then run brew upgrade peras, then peras menubar install --native --app ~/Downloads/Peras\\.app, then peras setup\\.`));
+  assert.doesNotMatch(text, /run brew upgrade peras, then peras setup|peras update --app/);
+  await assert.rejects(f.invoke({ root: keg, version: appVersion }), /^Error: Peras was installed with Homebrew\. Peras .* needs the .* app.*Nothing was changed\.$/);
+  assert.ok(!f.calls.some((c) => c.args[0] === "install" || c.args[0] === "root"), "npm installs nothing");
+});

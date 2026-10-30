@@ -54,7 +54,9 @@ test('R4 coordinated update restores both versions after a quarantined app fails
  const f=fixture();
  const run=async(command,args,options)=>{
   if(!args.includes('--native'))return f.run(command,args,options);
-  // This injected installer uses this checkout's CLI, rather than a separate 0.5 test binary.
+  // This injected installer uses this checkout's CLI, rather than a separate 0.5 test binary,
+  // so the app it installs is of this checkout's line: setup refuses an app from another line.
+  fs.writeFileSync(path.join(args[args.indexOf('--app')+1],'Contents','Info.plist'),`<key>PerasRuntimeVersion</key><string>${JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url))).version}</string>`);
   writeInstall(f.env,{version:'0.4.0',command:'old-hook'});
   fs.writeFileSync(settingsPath(f.env),'{}');
   const lines=[];

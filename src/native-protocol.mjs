@@ -8,7 +8,8 @@ import { DISPLAY_STYLES, displayMode, displayStyle } from "./menubar.mjs";
 import { weekRecap } from "./recap.mjs";
 import { WEEKLY_STYLES, preferences, weeklyStyle } from "./preferences.mjs";
 import { activeExtras, profileSummary, readPlanning } from "./planning.mjs";
-import { duringActive, ruleId } from "./rules.mjs";
+import { duringActive, emptyAt, fastRise, ruleId, windowBurn } from "./rules.mjs";
+import { promptSpawns } from "./spawn.mjs";
 import { HOOK_MEMORY, dirKey, planResume, readInstall, readWindow, wholeMinute } from "./store.mjs";
 import { WINDOWS } from "./window.mjs";
 import { hookConfigurationFingerprint } from "./hook-health.mjs";
@@ -110,18 +111,18 @@ const reasonKey = (hit) => (hit.kind === "manual" ? hit.key : [hit.kind, hit.per
 
 function reasonRow(hit, opaque) {
   const kind = hit.kind;
-  const expiresAtMs = kind === "manual" ? hit.until ?? null : kind === "prompt" ? null : ms(hit.resetsAt);
+  const expiresAtMs = kind === "manual" ? hit.until ?? null : ["prompt", "agents", "spawnhold"].includes(kind) ? null : ms(hit.resetsAt);
   return {
     id: `rsn_${opaque(reasonKey(hit))}`,
     code: `${kind}_${hit.action}`,
     kind,
     action: hit.action,
     window: kind === "manual" ? null : hit.window ?? null,
-    // `used` is measured in the same unit as `at`: a prompt line compares the rise since the prompt;
+    // `used` is measured in the same unit as `at`: prompt and rate lines compare a rise in points;
     // allowances compare points spent; window and pace lines compare the window's percentage.
     at: Number.isFinite(hit.at) ? hit.at : null,
-    used: kind === "prompt" ? (Number.isFinite(hit.rise) ? hit.rise : null) : Number.isFinite(hit.usedPct) ? hit.usedPct : null,
-    unit: ["prompt", "daily", "project", "pacing"].includes(kind) ? "points" : "percent",
+    used: kind === "agents" ? hit.before : ["prompt", "rate", "spawnhold"].includes(kind) ? (Number.isFinite(hit.rise) ? hit.rise : null) : Number.isFinite(hit.usedPct) ? hit.usedPct : null,
+    unit: kind === "agents" ? "count" : ["prompt", "rate", "spawnhold", "daily", "project", "pacing"].includes(kind) ? "points" : "percent",
     scope: hit.project ? "project" : "global",
     project: project(hit.project, opaque),
     expiresAtMs,
@@ -177,8 +178,9 @@ export function offeredActions(s, now) {
   const manual = s.state?.manualPause ?? null;
   const pauseId = manual ? { since: manual.since, until: manual.until ?? null } : null;
   const stopped = s.verdict.action === "pause" || s.verdict.action === "ask" || Boolean(manual);
+  const spawnStopped = s.verdict.hits.some((h) => ["agents", "spawnhold"].includes(h.kind) && h.action !== "warn");
   const offers = [];
-  if (stopped) {
+  if (stopped || spawnStopped) {
     for (const duration of [null, "1h"]) {
       const plan = planResume(s.state, s.ctx, { now, forMs: duration ? HOUR : null });
       // Stops are named by reasonKey (fields + folder) rather than hit.key, which hashes the folder: the same identity, readable by a fixture signer.
@@ -186,6 +188,8 @@ export function offeredActions(s, now) {
       const impact = { manual: pauseId, lifts: plan.lifted.map(reasonKey).sort(), replaced: plan.replaced.map((r) => [name(r.key), r.until ?? null]).sort(), duration };
       offers.push({ op: "resume", params: { duration }, impact, plan, expiresAtMs: plan.until });
     }
+  }
+  if (stopped) {
     // Stay paused once the stop lifts by itself: a pause of yours on top of it, which Resume lifts too.
     if (!manual) offers.push({ op: "pause", params: { duration: null }, impact: { manual: null, duration: null }, expiresAtMs: null });
   } else {
@@ -305,6 +309,37 @@ function profileRow({ names, active, modified }) {
   return { names: names.map((n) => profileLabel(names, n)), active: profileLabel(names, active), modified };
 }
 
+export const BURN_STATES = ["calm", "rising", "stopped"];
+const lines = (s, kind) => (s.ctx.rules || []).filter((r) => r.kind === kind && !r.project && !r.off);
+const lowest = (rules) => rules.reduce((a, r) => (!a || r.at < a.at ? r : a), null);
+
+/**
+ * How fast each live window is rising, measured as the burn lines measure it: over the
+ * line that fired, else the lowest burn line, else 10 minutes. `stopped` means a burn
+ * line asks or pauses now; `rising` that one warns, or the last readings climb 3 points a minute.
+ */
+function burnRows(s, now) {
+  return Object.entries(s.ctx.window ?? {}).filter(([name]) => WINDOW_NAMES.includes(name)).map(([name, w]) => {
+    const hit = s.verdict.hits.find((h) => h.kind === "rate" && h.window === name);
+    const line = hit ?? lowest(lines(s, "rate").filter((r) => r.window === name));
+    const span = line?.span ?? 10;
+    const points = s.ctx.history?.[name] ?? [];
+    const stopped = hit && hit.action !== "warn";
+    const measuredAtMs = stopped ? s.state?.rateLatch?.[hit.key.split("#")[0]]?.firedAt ?? now : now;
+    const { burst: current, points: live } = windowBurn(name, w, points, now, span, s.state?.rateLatch);
+    const burst = stopped ? hit : current;
+    const rise = Math.max(0, Math.round((burst?.rise ?? 0) * 10) / 10);
+    const state = stopped ? "stopped" : hit || fastRise(live, now) ? "rising" : "calm";
+    const sinceMs = rise > 0 && Number.isFinite(burst?.since) ? burst.since : null;
+    // When the burst empties the window at its own rate; null while calm or when the reset comes first.
+    const emptyAtMs = state === "calm" || sinceMs == null ? null : emptyAt(w, rise, sinceMs, measuredAtMs, now);
+    return { window: name, rise, spanMinutes: span, sinceMs, ...(stopped ? { measuredAtMs } : {}), line: line ? { at: line.at, action: line.action } : null, state, emptyAtMs };
+  });
+}
+
+/** Subagents the agent's latest prompt started, and the subagent line, if any. */
+const subagentsRow = (s, now) => ({ prompt: s.env && s.state ? promptSpawns(s.env, s.state, now) : 0, line: lowest(lines(s, "agents"))?.at ?? null });
+
 /**
  * One provider as protocol 1 describes it, from a providers.mjs snapshot taken
  * with `cwd: null`, so the verdict does not depend on where the bridge started.
@@ -333,6 +368,10 @@ export function providerPayload(s, { now, sign, id = contextId, opaque = digest,
     profiles: profileRow(profiles),
     actions: actionRows(s, now, sign, opaque, notReady),
     recap: s.env ? weekRecap(s.env, s.usage, s.provider, now) : null,
+    burn: burnRows(s, now),
+    subagents: subagentsRow(s, now),
+    // Codex only: saved resets as of the last reading; null when unknown. Peras never spends one.
+    savedResets: s.savedResets ? { count: s.savedResets.count, nextExpiresAtMs: s.savedResets.nextExpiresAtMs } : null,
   };
 }
 
@@ -427,13 +466,18 @@ export function snapshotProblems(message) {
     need(["default", "strict"].includes(p?.failurePolicy?.mode), `${at}.failurePolicy`);
     need(ACTIONS.includes(p?.verdict?.action), `${at}.verdict`);
     const r = p?.protectionReceipt;
-    need(r === null || (isObject(r) && Number.isFinite(r.firstAtMs) && Number.isFinite(r.atMs) && Number.isInteger(r.count) && ACTIONS.includes(r.reason?.action) && ["points", "percent"].includes(r.reason.unit)), `${at}.protectionReceipt`);
-    need(Array.isArray(p?.reasons) && p.reasons.every((r) => ACTIONS.includes(r?.action) && typeof r.code === "string" && ["global", "project"].includes(r.scope) && ["points", "percent"].includes(r.unit) && isMs(r.expiresAtMs)), `${at}.reasons`);
+    need(r === null || (isObject(r) && Number.isFinite(r.firstAtMs) && Number.isFinite(r.atMs) && Number.isInteger(r.count) && ACTIONS.includes(r.reason?.action) && ["points", "percent", "count"].includes(r.reason.unit)), `${at}.protectionReceipt`);
+    need(Array.isArray(p?.reasons) && p.reasons.every((r) => ACTIONS.includes(r?.action) && typeof r.code === "string" && ["global", "project"].includes(r.scope) && ["points", "percent", "count"].includes(r.unit) && isMs(r.expiresAtMs)), `${at}.reasons`);
     need((p?.verdict?.action === "none") === !(p?.reasons ?? []).length, `${at}.verdict matches reasons`);
     need(Array.isArray(p?.thresholds) && p.thresholds.every((t) => THRESHOLD_STATES.includes(t?.state) && (t.state !== "lifted" || isMs(t.liftedUntilMs))) && isObject(p?.planning) && Array.isArray(p.planning.meters), `${at}.thresholds/planning`);
     need((p?.planning?.meters ?? []).every((m) => m?.kind !== "pacing" || ((m.expectedByTonightPercent === null || (Number.isFinite(m.expectedByTonightPercent) && m.expectedByTonightPercent >= 0 && m.expectedByTonightPercent <= 100)) && (m.pace === null || PACE_STATES.includes(m.pace)))), `${at}.planning.pace`);
     const recap = p?.recap;
     need(recap === undefined || recap === null || (isObject(recap) && typeof recap.id === "string" && isMs(recap.weekEndedAtMs) && recap.weekEndedAtMs !== null && Number.isFinite(recap.usedPercent) && recap.usedPercent >= 0 && recap.usedPercent <= 100 && isMs(recap.lastReadingAtMs) && typeof recap.atReset === "boolean" && (recap.pauses === null || (Number.isSafeInteger(recap.pauses) && recap.pauses >= 0)) && isMs(recap.untilMs)), `${at}.recap`);
+    const burns = recap?.burns;
+    need(burns === undefined || burns === null || (isObject(burns) && Number.isSafeInteger(burns.count) && burns.count >= 0 && (burns.biggest === null || (isObject(burns.biggest) && Number.isFinite(burns.biggest.rise) && burns.biggest.rise >= 0 && Number.isSafeInteger(burns.biggest.minutes) && burns.biggest.minutes >= 1))), `${at}.recap.burns`);
+    need(p?.savedResets === undefined || p.savedResets === null || (isObject(p.savedResets) && Number.isSafeInteger(p.savedResets.count) && p.savedResets.count >= 0 && isMs(p.savedResets.nextExpiresAtMs)), `${at}.savedResets`);
+    need(p?.burn === undefined || (Array.isArray(p.burn) && p.burn.every((b) => WINDOW_NAMES.includes(b?.window) && BURN_STATES.includes(b.state) && Number.isFinite(b.rise) && b.rise >= 0 && Number.isSafeInteger(b.spanMinutes) && b.spanMinutes >= 1 && b.spanMinutes <= 300 && isMs(b.sinceMs) && (b.measuredAtMs === undefined || isMs(b.measuredAtMs)) && (b.line === null || (isObject(b.line) && Number.isFinite(b.line.at) && ACTIONS.includes(b.line.action))) && (b.emptyAtMs === undefined || b.emptyAtMs === null || isMs(b.emptyAtMs)))), `${at}.burn`);
+    need(p?.subagents === undefined || p.subagents === null || (isObject(p.subagents) && Number.isSafeInteger(p.subagents.prompt) && p.subagents.prompt >= 0 && (p.subagents.line === null || Number.isSafeInteger(p.subagents.line))), `${at}.subagents`);
     need(isObject(p?.profiles) && Array.isArray(p.profiles.names), `${at}.profiles`);
     need(Array.isArray(p?.actions) && p.actions.every((a) => typeof a?.op === "string" && a.provider === p.id && typeof a.eligible === "boolean" && isMs(a.expiresAtMs)), `${at}.actions`);
   }

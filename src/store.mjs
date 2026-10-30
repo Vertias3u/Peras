@@ -4,10 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { mergeWindow, liveWindow, resetTime } from "./window.mjs";
-import { DEFAULT_RULES, evaluate, normalizeRules } from "./rules.mjs";
-import { forecasts, readUsage } from "./usage.mjs";
+import { DEFAULT_RULES, KINDS, evaluate, normalizeRules } from "./rules.mjs";
+import { forecasts, readUsage, sameWindow } from "./usage.mjs";
 import { recordEvent } from "./events.mjs";
-import { withControlLock } from "./control-lock.mjs";
+import { ControlsBusy, withControlLock } from "./control-lock.mjs";
 
 // Everything Peras keeps lives under ~/.peras (PERAS_HOME). The window, the
 // state and the install record are kept per Claude config dir, because each
@@ -77,8 +77,8 @@ export function recordReading(env, reading, options = {}) {
 
 // Lines a version added to the defaults. A config saved by an older version gets
 // them too, once: `peras set reset` in 0.1 wrote its defaults out in full.
-const CONFIG_VERSION = 2;
-const ADDED_IN = { 2: DEFAULT_RULES.filter((r) => r.kind === "pace") };
+const CONFIG_VERSION = 3;
+const ADDED_IN = { 2: DEFAULT_RULES.filter((r) => r.kind === "pace"), 3: DEFAULT_RULES.filter((r) => r.kind === "rate") };
 
 export function readRules(env) {
   const config = readJson(configFile(env));
@@ -96,12 +96,18 @@ export function writeRules(env, rules) {
   } catch {
     // A damaged config is replaced by the lines being saved.
   }
-  writeJsonAtomic(configFile(env), { ...config, v: CONFIG_VERSION, rules });
+  const unknown = Array.isArray(config.rules) ? config.rules.filter((r) => r && r.kind != null && !KINDS.includes(r.kind)) : [];
+  writeJsonAtomic(configFile(env), { ...config, v: Math.max(config.v ?? 0, CONFIG_VERSION), rules: [...rules.filter((r) => r.kind == null || KINDS.includes(r.kind)), ...unknown] });
 }
 
-// Every key ends `@resetsAt` (epoch s), and a prompt line's key adds `#prompt`;
-// one whose window has reset is dead weight.
-const keyAlive = (key, now) => Number(String(key).split("@")[1]?.split("#")[0]) * 1000 > now;
+// Window keys expire at their reset; agents keys live for the prompt memory
+// lifetime because they name a prompt instead of a window.
+const keyAlive = (key, now) => {
+  key = key.replace(/^(?:pause|warn|ask):/, "");
+  return key.startsWith("agents:")
+    ? now - parseInt(key.split("@")[1], 36) < PROMPT_TTL
+    : Number(key.split("@")[1]?.split("#")[0]) * 1000 > now;
+};
 const MAX_SESSIONS = 100;
 const PROMPT_TTL = 7 * 24 * 3600_000;
 
@@ -155,7 +161,10 @@ export function readState(env, now = Date.now(), { strict = false } = {}) {
     asked,
     prompts,
     sessions,
+    spawns: Object.fromEntries(recent(raw?.spawns, MAX_SESSIONS).filter(([id, s]) =>
+      s && s.prompt === (prompts[id]?.id ?? "session") && Number.isSafeInteger(s.n) && s.n >= 0)),
     latched: keys(raw?.latched),
+    rateLatch: Object.fromEntries(recent(raw?.rateLatch, 1000).filter(([key, value]) => keyAlive(key, now) && value && (Number.isFinite(value.firedAt) || Number.isFinite(value.releasedAt)))),
     manualPause,
     failWarnAt: typeof raw?.failWarnAt === "number" ? raw.failWarnAt : 0,
   };
@@ -170,14 +179,45 @@ export function writeState(env, state) {
  * own file. Your pause and resumes live in state/, which only the locked control
  * writers write, so a hook can never write an older copy of them back.
  */
-export function writeHookState(env, state, now = Date.now()) {
+export function writeHookState(env, state, now = Date.now(), { rateOnly = false } = {}) {
   const file = hookMemoryFile(env);
   // The first write moves hook memory out of state/: keep a copy of state/ as it was, once.
   if (!fs.existsSync(file)) {
     try { fs.copyFileSync(stateFile(env), stateFile(env).replace(/\.json$/, ".before-v04.json"), fs.constants.COPYFILE_EXCL); } catch { /* none yet, or already kept */ }
   }
-  const { notified, asked, prompts, sessions, latched, failWarnAt } = state;
-  writeJsonAtomic(file, { notified, asked, prompts, sessions, latched, failWarnAt });
+  const write = () => {
+    // Status and Resume remember burns without writing an old copy of hook memory back.
+    const { notified, asked, prompts, sessions, spawns, latched, failWarnAt } = rateOnly ? readState(env, now) : state;
+    let rateLatch = state.rateLatch;
+    try { rateLatch = mergeLatches(readJson(file)?.rateLatch, rateLatch, now); } catch { /* ours alone */ }
+    writeJsonAtomic(file, { notified, asked, prompts, sessions, spawns, latched, rateLatch, failWarnAt });
+    return rateLatch;
+  };
+  // Parallel hooks read, merge and write as one step; a lock held too long can't stop a hook.
+  try { return withControlLock(file, write, { attempts: 20, waitMs: 5 }); } catch (error) { if (error instanceof ControlsBusy) return write(); else throw error; }
+}
+
+// Hooks run in parallel during a fan-out. One that read before another latched a burn must not
+// write the latch away: per line, the earliest stop stands until a release that came after it.
+function mergeLatches(theirs, ours, now) {
+  const merged = Object.fromEntries(Object.entries(ours ?? {}).filter(([key]) => keyAlive(key, now)));
+  if (!theirs || typeof theirs !== "object" || Array.isArray(theirs)) return merged;
+  for (const [key, other] of Object.entries(theirs)) {
+    if (!other || typeof other !== "object" || !keyAlive(key, now)) continue;
+    merged[key] = merged[key] ? mergeLatch(merged[key], other) : other;
+  }
+  return merged;
+}
+
+// The latest release stands, and a stop from before it is over; of the stops after it, the earliest.
+function mergeLatch(a, b) {
+  const release = (a.releasedAt ?? -Infinity) >= (b.releasedAt ?? -Infinity) ? a : b;
+  const releasedAt = release.releasedAt ?? -Infinity;
+  const kept = Number.isFinite(releasedAt) ? { releasedAt, ...(release.byResume ? { byResume: true } : {}), ...(Number.isFinite(release.releasedPct) ? { releasedPct: release.releasedPct } : {}) } : {};
+  const stops = [a, b].filter((v) => Number.isFinite(v.firedAt) && v.firedAt > releasedAt);
+  if (!stops.length) return Number.isFinite(releasedAt) ? kept : a;
+  const stop = stops.reduce((x, y) => (y.firedAt < x.firedAt ? y : x));
+  return { ...stop, ...kept };
 }
 
 export function readInstall(env) {
@@ -203,6 +243,8 @@ export function context(env, { now = Date.now(), cwd = null, session = null, sta
     cwd,
     resumed: state.resumed,
     latched: state.latched,
+    rateLatch: state.rateLatch,
+    history: Object.fromEntries(Object.entries(window).filter(([name, w]) => sameWindow(usage?.windows?.[name]?.resetsAt, w.resetsAt)).map(([name]) => [name, usage.windows[name].pts ?? []])),
     manualPause: state.manualPause,
     prompt: session ? state.prompts[session] ?? null : null,
     forecast: usage ? forecasts(usage, window, now) : {},
@@ -210,16 +252,30 @@ export function context(env, { now = Date.now(), cwd = null, session = null, sta
 }
 
 /** Evaluate the terminal and recently seen agent sessions, using each session's folder. */
+// What the next spawn in this session would find: the count belongs to its current prompt only.
+const spawnNow = (state, id) => {
+  const prompt = state.prompts[id]?.id ?? "session";
+  return { isSpawn: true, prompt, before: state.spawns?.[id]?.prompt === prompt ? state.spawns[id].n : 0, sessionStart: state.sessions?.[id]?.startedAt, session: id };
+};
+
 export function sessionVerdict(ctx, state) {
   const ids = new Set([...Object.keys(state.sessions ?? {}), ...Object.keys(state.prompts)]);
-  const hits = [...evaluate(ctx).hits];
+  const first = evaluate(ctx);
+  const hits = [...first.hits];
+  let rateLatch = first.rateLatch;
   for (const id of ids) {
-    hits.push(...evaluate({ ...ctx, cwd: state.sessions?.[id]?.cwd ?? ctx.cwd, prompt: state.prompts[id] ?? null }).hits);
+    const verdict = evaluate({ ...ctx, rateLatch, cwd: state.sessions?.[id]?.cwd ?? ctx.cwd, prompt: state.prompts[id] ?? null, spawn: spawnNow(state, id) });
+    hits.push(...verdict.hits);
+    rateLatch = verdict.rateLatch;
   }
   const unique = [...new Map(hits.map((h) => [h.key, h])).values()];
   const rank = { warn: 1, ask: 2, pause: 3 };
-  unique.sort((a, b) => rank[b.action] - rank[a.action] || (b.at ?? 0) - (a.at ?? 0));
-  return { hits: unique, hit: unique[0] ?? null, action: unique[0]?.action ?? "none" };
+  // Holding new subagents doesn't stop the agent: alone, it reads as a warning.
+  // The hit keeps its own action, so a resume still lifts it.
+  const spawnOnly = (h) => Number(h.kind === "agents" || h.kind === "spawnhold");
+  unique.sort((a, b) => spawnOnly(a) - spawnOnly(b) || rank[b.action] - rank[a.action] || (b.at ?? 0) - (a.at ?? 0));
+  const top = unique[0];
+  return { hits: unique, hit: top ?? null, action: !top ? "none" : spawnOnly(top) ? "warn" : top.action, rateLatch };
 }
 
 /**
@@ -261,11 +317,12 @@ export function resume(env, { now = Date.now(), forMs = null, cwd = null } = {})
  */
 export function planResume(state, ctx, { now = Date.now(), forMs = null } = {}) {
   // Re-evaluate lifted rules too, so another resume can replace their expiry.
-  const hits = ctx ? sessionVerdict({ ...ctx, resumed: [] }, state).hits.filter((h) => h.action !== "warn" && h.kind !== "manual") : [];
+  const verdict = ctx ? sessionVerdict({ ...ctx, resumed: [] }, state) : null;
+  const hits = verdict ? verdict.hits.filter((h) => h.action !== "warn" && h.kind !== "manual") : [];
   const lifted = [...new Map(hits.map((h) => [h.key, h])).values()];
   const until = forMs !== null ? wholeMinute(now + forMs) : null;
   const replaced = state.resumed.filter((r) => lifted.some((h) => h.key === r.key));
-  return { lifted, replaced, manual: state.manualPause, until };
+  return { lifted, replaced, manual: state.manualPause, until, rateLatch: verdict?.rateLatch };
 }
 
 export class ControlsChanged extends Error {
@@ -300,6 +357,15 @@ export function commitResume(env, plan, { now = Date.now(), forMs = null, review
   if (!plan.lifted.length && !plan.manual) return false;
   changeControls(env, now, (state) => {
     if (reviewed && (!samePause(state.manualPause, plan.manual) || lifts(state.resumed, plan) !== lifts(plan.replaced, plan))) throw new ControlsChanged();
+    if (plan.rateLatch) {
+      const rateLatch = { ...plan.rateLatch };
+      for (const hit of plan.lifted) {
+        if (hit.kind !== "rate" && hit.kind !== "spawnhold") continue;
+        const baseKey = hit.key.replace(/^spawnhold:/, "").split("#")[0];
+        rateLatch[baseKey] = { releasedAt: now, byResume: true, releasedPct: hit.usedPct };
+      }
+      state.rateLatch = writeHookState(env, { ...state, rateLatch }, now, { rateOnly: true });
+    }
     state.resumed = [...state.resumed.filter((r) => !plan.lifted.some((h) => h.key === r.key)), ...plan.lifted.map((h) => ({ key: h.key, ...(plan.until ? { until: plan.until } : {}) }))];
     state.manualPause = null;
   });

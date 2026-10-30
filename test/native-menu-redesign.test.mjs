@@ -146,7 +146,7 @@ test("after a week Peras saw roll over, the recap tells how far it got and how o
   recordEvent(env, { kind: "pause", provider: "claude", at: endMs - 86400_000, message: "line" });
   recordEvent(env, { kind: "pause", provider: "codex", at: endMs - 86400_000, message: "other agent" });
   recordEvent(env, { kind: "pause", provider: "claude", at: endMs - 8 * 86400_000, message: "the week before" });
-  assert.deepEqual(await recap(env), { id: `claude:${end}`, weekEndedAtMs: endMs, usedPercent: 88, lastReadingAtMs: endMs - 20 * 60_000, atReset: true, pauses: 1, untilMs: endMs + RECAP_MS });
+  assert.deepEqual(await recap(env), { id: `claude:${end}`, weekEndedAtMs: endMs, usedPercent: 88, lastReadingAtMs: endMs - 20 * 60_000, atReset: true, pauses: 1, burns: { count: 0, biggest: null }, untilMs: endMs + RECAP_MS });
   assert.equal(await recap(env, endMs + RECAP_MS), null, "offered only in the days after the reset");
   // A last reading hours before the reset is said as such, and a cut history gives no pause count.
   const { env: early } = home();

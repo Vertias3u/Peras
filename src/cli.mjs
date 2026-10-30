@@ -24,10 +24,13 @@ import { describe } from "./hook.mjs";
 import * as menubar from "./menubar.mjs";
 import { codexEnv, inspectCodex, installCodex, removeCodex } from "./codex.mjs";
 import { snapshot, statusText, whyText, codexDoctor, terminalStatusline } from "./providers.mjs";
+import { savedResets, savedResetsText } from "./saved-resets.mjs";
 import { preferences, setPreference } from "./preferences.mjs";
 import { hookHealth } from "./hook-health.mjs";
 import { launchFile, nodePath, writeLaunchRecord } from "./node-runtime.mjs";
 import * as nativeApp from "./native-app.mjs";
+import { compareVersions, homebrewInstall, lineOf } from "./update.mjs";
+import { updateBackup } from "./update-backup.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PACKAGE = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
@@ -68,6 +71,8 @@ const HELP = `Peras 🍐 ${VERSION}: stop Claude Code or Codex before it burns t
   peras set weekly 85 pause   a line: 5h|weekly, warn|ask|pause, 1-100|off
   peras set weekly pace pause act when the week is on pace to run out early
   peras set prompt 3 pause    act when one prompt raises the week by 3 points
+  peras set 5h rate 15/5m pause  act when the 5-hour window rises 15 points in 5 minutes
+  peras set agents 3 ask      act on a prompt's 4th subagent
   peras set 01:00-08:00 weekly 50 pause    a line for part of the day
   peras set --here weekly 60 pause         a line for this folder and below
   peras set reset             back to the defaults (--here: drop this folder's lines)
@@ -108,11 +113,13 @@ const ago = (ms) => {
 };
 
 function ruleText(r) {
+  if (r.kind === "agents") return r.off ? `agents ${r.action} off${r.during ? ` ${r.during}` : ""}` : `more than ${r.at} subagent${r.at === 1 ? "" : "s"} per prompt ${r.action}${r.during ? ` ${r.during}` : ""}`;
   const name = WINDOWS[r.window].name;
   const during = r.during ? ` ${r.during}` : "";
   if (r.off) return `${r.kind === "window" ? name : `${name} ${r.kind}`} ${r.action} off${during}`;
   if (r.kind === "pace") return `${name} pace ${r.action} (from ${r.at}%)${during}`;
   if (r.kind === "prompt") return `${name} +${r.at}% per prompt ${r.action}${during}`;
+  if (r.kind === "rate") return `${name} +${r.at}% in ${r.span} min ${r.action}${during}`;
   return `${name} ${r.at}% ${r.action}${during}`;
 }
 
@@ -160,8 +167,39 @@ function onPath(name, env) {
     .some((dir) => dir && exts.some((ext) => fs.existsSync(path.join(dir, name + ext))));
 }
 
+/**
+ * The Peras app only opens a runtime of its own 0.x line, so a runtime from another line would leave it
+ * unable to start. `PERAS_INCOMING_APP` names an app about to replace the installed one (`update --app`).
+ */
+// 0.4's `peras update --app` runs the new setup before it installs the new app. While it runs, its
+// backup (`.peras-update-*` in ~/.peras) lists the app and launch record it puts back if anything fails.
+function appBeingReplaced(env, now = Date.now()) {
+  const home = perasHome(env), app = path.resolve(nativeApp.appPath(env));
+  let names;
+  try { names = fs.readdirSync(home); } catch { return false; }
+  return names.some((name) => {
+    if (!name.startsWith(".peras-update-")) return false;
+    try {
+      const manifest = path.join(home, name, "manifest.json");
+      if (now - fs.statSync(manifest).mtimeMs > 15 * 60_000) return false;
+      return JSON.parse(fs.readFileSync(manifest, "utf8")).some((entry) => entry?.file && path.resolve(entry.file) === app);
+    } catch { return false; }
+  });
+}
+
+function checkAppLine(env) {
+  const incoming = env.PERAS_INCOMING_APP;
+  const app = incoming ? nativeApp.bundleVersion(incoming) : nativeApp.appVersion(env);
+  let mine, theirs;
+  try { mine = lineOf(VERSION); theirs = lineOf(app); } catch { return; }
+  if (mine === theirs || (!incoming && appBeingReplaced(env))) return;
+  if (compareVersions(app, VERSION) < 0) throw new Error(`Your Peras app is ${app}, and Peras ${VERSION} needs the Peras ${mine} app. The new app comes with your purchase: download it from ${nativeApp.APP_DOWNLOAD_URL} (or build it yourself), then run peras update --app ~/Downloads/Peras.app. Nothing was changed.`);
+  throw new Error(`Your Peras app is ${app}, newer than this Peras (${VERSION}). Run peras update, or npx ${PACKAGE.name}@latest setup. Nothing was changed.`);
+}
+
 /** Hooks keep their stable app/bin entrypoint; Node resolves it into one immutable runtime. */
 function copyRuntime(env) {
+  checkAppLine(env);
   const bin = installRuntime(env, ROOT);
   // Patch updates keep the signed app: its launch record must describe the new runtime.
   if (fs.existsSync(launchFile(env))) writeLaunchRecord(env, { cli: bin, runtimeVersion: VERSION });
@@ -189,16 +227,19 @@ export function resumeHintFor({ onPath: found, root, command }) {
   return `${command} resume`;
 }
 
-function setup(env, out) {
+function setup(env, out, claudeVersion = claudeCodeVersion) {
   const before = readInstall(env)?.version;
   const bin = copyRuntime(env);
   const command = `"${nodePath(env)}" "${bin}"`;
   const resumeHint = resumeHintFor({ onPath: onPath("peras", env), root: ROOT, command });
-  const result = install({ env, command, resumeHint, version: VERSION });
+  let running = null;
+  try { running = claudeVersion(env); } catch { /* not installed, or not on PATH */ }
+  const result = install({ env, command, resumeHint, version: VERSION, runningClaude: running });
   const upgraded = before && before !== VERSION ? ` (updated from ${before} to ${VERSION})` : "";
   out(`Peras 🍐 is ${result.changed ? "set up" : "already set up"} in ${tilde(result.target, env)}${upgraded}`);
   if (result.backupPath && result.changed) out(`  backup of your settings: ${tilde(result.backupPath, env)}`);
   if (result.chained) out(`  your status line still shows; Peras runs in front of it: ${result.chained}`);
+  if (!result.refresh) out(`  Claude Code ${running ?? "(version unknown)"} can't re-run the status line on a timer (2.1.97 or later can), so readings arrive only when it redraws.`);
   if (result.hooksDisabled) out(`  ⚠️ "disableAllHooks" is on in your settings, so Peras cannot pause anything until it is off.`);
   if (hasPassControl(env)) out("  PassControl's hooks are here too. Both run; the stricter answer wins.");
   if (menubar.installed(env)) {
@@ -282,8 +323,11 @@ function status(env, out, now, { isTTY = process.stdout.isTTY, verdict, snap, ro
     out(paint(color, "yellow", `${MARK.warn} ${hits.map((h) => describe(h, now).short).join(", ")}.`));
   }
   for (const meter of ctx.allowances || []) out(`  ${budgetText(meter)}`);
+  const saved = codex && savedResetsText(snap ? snap.savedResets : savedResets(root, now), now);
+  if (saved) out(`  ${saved} (spend it in Codex; Peras never does).`);
   const liveKeys = [...Object.values(live), ...(ctx.allowances || [])].map((w) => `@${w.resetsAt}`);
-  const lifted = state.resumed.filter((r) => liveKeys.some((k) => r.key.includes(k)));
+  // A resumed burst or prompt has no end time worth showing; it's over when it's over.
+  const lifted = state.resumed.filter((r) => liveKeys.some((k) => r.key.includes(k)) && !/^(rate|spawnhold|agents):/.test(r.key));
   if (action !== "pause" && action !== "ask" && lifted.length) {
     const until = Math.min(...lifted.map((r) => r.until ?? Number(r.key.split("@")[1].split("#")[0]) * 1000));
     out(`▶ Resumed until ${resetTime(until / 1000, now)}. A higher line still stops it.`);
@@ -337,10 +381,15 @@ function doResume(env, out, now, args) {
   }
   if (manual) out("▶ Your pause is over.");
   if (issue) out(`⚠️ Usage rules could not be checked (${issue}). Only your manual pause was cleared; run \`peras doctor\`.`);
+  const said = new Set();
   for (const h of lifted) {
     const d = describe(h, now);
-    const till = until ? `for ${args.join(" ")}, until ${resetTime(until / 1000, now)}` : h.kind === "prompt" ? "for this prompt" : `until it resets ${resetTime(h.resetsAt, now)}`;
-    out(`▶ Lifted: ${d.short}, ${till}.`);
+    // A resume lets one burst go; a new burst can stop it again.
+    const till = h.kind === "rate" ? "until a new burst" : h.kind === "spawnhold" ? "for this burst" : h.kind === "agents" ? "for this prompt" : until ? `for ${args.join(" ")}, until ${resetTime(until / 1000, now)}` : h.kind === "prompt" ? "for this prompt" : `until it resets ${resetTime(h.resetsAt, now)}`;
+    // Each burn line holds new subagents on its own key; one line about it is enough.
+    const line = `▶ Lifted: ${d.short}, ${till}.`;
+    if (!said.has(line)) out(line);
+    said.add(line);
   }
   return 0;
 }
@@ -701,11 +750,36 @@ async function doMenubar(env, out, now, args, reader, { quitMenubar = menubar.qu
   }
   if (sub === "install" && folder === "--native") {
     if (args.length !== 2 && !(args.length === 4 && args[2] === "--app")) throw new Error("Use peras menubar install --native [--app <path to Peras.app>]");
-    // The runtime and the app's launch record only: Claude Code and Codex are set up when you choose to.
-    const record = writeLaunchRecord(env, { cli: copyRuntime(env), runtimeVersion: VERSION });
-    out(`The Peras app will run ${tilde(record.cli, env)} with Node ${record.nodeVersion} (${tilde(record.node, env)}).`);
-    if (!readInstall(env) && !readInstall(codexEnv(env))) out("Nothing is set up in Claude Code or Codex yet: the app shows usage, and the hooks are what pause.");
-    const code = await moveToNative(env, out, args[3], app);
+    // An app from another line, by hand: if the new one doesn't take, the old app gets its runtime back.
+    let crossLine = false;
+    try { crossLine = Boolean(args[3]) && nativeApp.appInstalled(env) && lineOf(nativeApp.appVersion(env)) !== lineOf(VERSION); } catch { /* unreadable: checkAppLine decides */ }
+    if (!crossLine) refreshStaleHooks(env, out);
+    const runtime = path.join(perasHome(env), "app");
+    const backup = crossLine ? updateBackup([runtime, launchFile(env)], perasHome(env), { runtime }) : null;
+    let code;
+    try {
+      // The runtime and the app's launch record only: Claude Code and Codex are set up when you choose to.
+      const record = writeLaunchRecord(env, { cli: copyRuntime(env), runtimeVersion: VERSION });
+      out(`The Peras app will run ${tilde(record.cli, env)} with Node ${record.nodeVersion} (${tilde(record.node, env)}).`);
+      if (!readInstall(env) && !readInstall(codexEnv(env))) out("Nothing is set up in Claude Code or Codex yet: the app shows usage, and the hooks are what pause.");
+      code = await moveToNative(env, out, args[3], app);
+    } catch (error) {
+      // Only while the old app is still the one installed: once the new app is in, its runtime stays.
+      let oldApp = true;
+      try { oldApp = lineOf(nativeApp.appVersion(env)) !== lineOf(VERSION); } catch { /* unreadable: put the old runtime back */ }
+      if (oldApp && backup) {
+        try { backup.restore(); } catch (undo) {
+          // Keep the backup: it holds the old app's working runtime.
+          throw new Error(`${error.message} Restoring the old app's runtime failed too (${undo.message}). Backup kept at ${tilde(backup.dir, env)}.`);
+        }
+      }
+      backup?.discard();
+      throw error;
+    }
+    backup?.discard();
+    if (crossLine && code === 0) {
+      try { refreshStaleHooks(env, out); } catch (error) { out(`✗ The app is in, but the hooks could not be updated (${error.message}). Run \`peras setup\`.`); return 1; }
+    }
     for (const line of await nextSteps(env, now)) out(line);
     return code;
   }
@@ -760,6 +834,7 @@ function doctor(env, out, now) {
     check(wired.statusLine, "status line is Peras's (it feeds the window)", "status line is not Peras's, so no window arrives: run `peras setup`");
     check(!wired.hooksDisabled, "hooks are allowed", '"disableAllHooks" is on, so nothing can be paused');
   }
+  if (homebrewInstall(ROOT)) out("• installed with Homebrew: update with `brew upgrade peras`, then `peras setup`");
   const record = readInstall(env);
   if (record) {
     const bin = record.command?.match(/"([^"]+peras\.mjs)"/)?.[1];
@@ -911,7 +986,11 @@ function refreshStaleHooks(env, out) {
 
 export async function main(args, { env = process.env, out = console.log, now = Date.now(), codexReader, quitMenubar, openMenubar, nativeApp: app, openSettingsURL, sendNotification = testNotification, isTTY = process.stdout.isTTY, claudeVersion = claudeCodeVersion } = {}) {
   const [command, ...rest] = args;
-  if ((WRITES.has(command) || (command === "codex" && ["set", "budget", "pace", "profile", "extra", "pause", "resume"].includes(rest[0]))) && !(command === "menubar" && (!rest[0] || ["show", "quit", "open", "bridge"].includes(rest[0])))) {
+  // The app being installed decides the line, not the one it replaces.
+  if (command === "menubar" && rest[0] === "install" && rest[1] === "--native" && rest[2] === "--app" && rest[3]) env = { ...env, PERAS_INCOMING_APP: path.resolve(rest[3]) };
+  // An app installed by hand refreshes the hooks itself: a new line's only once its app is in.
+  const handApp = command === "menubar" && rest[0] === "install" && rest[1] === "--native" && rest[2] === "--app";
+  if ((WRITES.has(command) || (command === "codex" && ["set", "budget", "pace", "profile", "extra", "pause", "resume"].includes(rest[0]))) && !handApp && !(command === "menubar" && (!rest[0] || ["show", "quit", "open", "bridge"].includes(rest[0])))) {
     try {
       refreshStaleHooks(env, out);
     } catch (error) {
@@ -981,7 +1060,7 @@ export async function main(args, { env = process.env, out = console.log, now = D
       }
       case "setup":
       case "install":
-        return setup(env, out);
+        return setup(env, out, claudeVersion);
       case "remove":
       case "uninstall":
         return remove(env, out);

@@ -56,6 +56,17 @@ export function resetTime(epochSeconds, now = Date.now()) {
   return at.toDateString() === new Date(now).toDateString() ? clock : `${DAYS[at.getDay()]} ${clock}`;
 }
 
+/**
+ * When a burst empties its window, in words: `long` for sentences ("in about 7 minutes",
+ * "around 21:40"), otherwise short for menus ("in ~7 min", "~21:40"). Never exact.
+ */
+export function emptyIn(atMs, now = Date.now(), { long = false } = {}) {
+  const min = (atMs - now) / 60_000;
+  if (Math.round(min) >= 60) return `${long ? "around " : "~"}${resetTime(atMs / 1000, now)}`;
+  if (min < 2) return long ? "in about a minute" : "in ~1 min";
+  return long ? `in about ${Math.round(min)} minutes` : `in ~${Math.round(min)} min`;
+}
+
 /** `5h 24% · 7d 41%`, or with `resets`, `5h 24% (resets 21:40) · 7d 41% (resets Tue 09:00)`. */
 export function windowText(window, { resets = false, now = Date.now() } = {}) {
   return Object.entries(WINDOWS)

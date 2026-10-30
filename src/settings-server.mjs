@@ -65,7 +65,7 @@ export async function startSettingsServer({ env = process.env, now = Date.now, g
       }
       else if (body.op === "extra-revoke") revokeExtra(scoped, body.id, now());
       else if (body.op === "rule") {
-        if (typeof body.rule?.at !== "number" || body.rule.at <= 0) throw new Error("A rule threshold must be above zero.");
+        if (typeof body.rule?.at !== "number" || (body.rule.kind === "agents" ? body.rule.at < 0 : body.rule.at <= 0)) throw new Error("A rule threshold must be above zero, or zero for subagents.");
         if (body.rule.project && (typeof body.rule.project !== "string" || !path.isAbsolute(body.rule.project))) throw new Error("Choose an absolute folder path.");
         const candidate = { ...body.rule, ...(body.rule.project ? { project: realDir(body.rule.project) } : {}) };
         const normalized = normalizeRules([candidate]);

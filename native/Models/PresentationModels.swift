@@ -145,6 +145,9 @@ struct ReasonPresentation: Identifiable {
     case "daily": return "Daily allowance"
     case "prompt": return "Prompt allowance"
     case "pacing", "pace": return "Reserve pace"
+    case "rate": return "Burning fast"
+    case "spawnhold": return "New subagents held"
+    case "agents": return "Subagents this prompt"
     default: return "Configured limit"
     }
   }
@@ -178,11 +181,16 @@ struct ProviderPresentation {
     }
   }
   var verdict: String { provider.payload["verdict"]["action"].string ?? "none" }
+  var subagentsOnly: Bool {
+    let stops = reasons.filter(\.stopping)
+    return !stops.isEmpty && stops.allSatisfy { ["agents", "spawnhold"].contains($0.raw["kind"].string ?? "") }
+  }
   var projectOnly: Bool {
     let stops = reasons.filter(\.stopping)
     return !stops.isEmpty && stops.allSatisfy(\.projectScoped)
   }
   var status: String {
+    if subagentsOnly { return "New subagents held" }
     if verdict == "ask" { return projectOnly ? "Project approval" : "Approval required" }
     if verdict == "pause" { return projectOnly ? "Project stop" : "Paused" }
     if verdict == "warn" { return "Warning" }

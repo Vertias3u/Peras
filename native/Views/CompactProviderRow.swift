@@ -23,8 +23,17 @@ struct CompactProviderRow: View {
       header
       track
       if style != .off { CompactWeekly(model: model, style: style).padding(.top, style == .bar ? 6 : 3) }
+      if let countdown = model.fiveHourCountdown() {
+        Text(countdown.line).font(.system(size: 10, weight: .medium)).foregroundStyle(Color(nsColor: BrandPalette.nsColor(provider.id)))
+          .monospacedDigit().lineLimit(1).padding(.top, 4).accessibilityLabel(countdown.accessibilityLabel)
+      }
+      if let subagents = model.subagents { Text(subagents).font(.system(size: 10)).foregroundStyle(.secondary).padding(.top, 4) }
+      if let saved = model.savedResetsText() {
+        Text(saved).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).padding(.top, 4)
+          .help("Spend it in Codex. Peras never spends it for you.").accessibilityLabel(saved)
+      }
       if let recap = store.recap(provider) { RecapCaption(recap: recap, store: store, observesVisibility: observesVisibility).padding(.top, 6) }
-      if ["pause", "ask"].contains(model.presentation.verdict) || (model.needsHealth && showHealthAttention) {
+      if ["pause", "ask"].contains(model.presentation.verdict) || model.presentation.subagentsOnly || (model.needsHealth && showHealthAttention) {
         CompactAttention(model: model, store: store).padding(.top, 9).transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
@@ -34,10 +43,17 @@ struct CompactProviderRow: View {
   private var header: some View {
     HStack(alignment: .firstTextBaseline) {
       Text(provider.label).font(.system(size: 13))
+      if let burn = model.burn(window: "five_hour") { BurnBadge(burn: burn, providerID: provider.id) }
       Spacer(minLength: 4)
-      // The five-hour reset sits beside the % it belongs to; it gives way before the number does.
-      if let reset = model.fiveHourReset() {
-        Text(reset).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().lineLimit(1).layoutPriority(-1)
+      // The five-hour reset sits beside the % it belongs to; it gives way before the number does,
+      // keeping its time while it can (a burn badge and the pause button leave little room).
+      // While the countdown line shows, a bare reset time here would read as the empty time.
+      if model.fiveHourCountdown() == nil, let reset = model.fiveHourReset() {
+        ViewThatFits(in: .horizontal) {
+          Text(reset)
+          Text(reset.replacingOccurrences(of: "resets ", with: ""))
+          Color.clear.frame(width: 0, height: 0)
+        }.font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit().lineLimit(1).layoutPriority(-1)
       }
       if !pauseOffers.isEmpty { pauseMenu }
       UsageNumber(text: model.window.used == nil ? "—" : model.window.valueText, value: model.window.used, animated: store.visible && !store.reduced).foregroundStyle(headerColor).opacity(numberOpacity)
@@ -92,16 +108,34 @@ struct CompactProviderRow: View {
   }
 }
 
+struct BurnBadge: View {
+  let burn: BurnPresentation
+  let providerID: String
+  var tone: String { burn.state == "stopped" ? "indigo" : providerID }
+  var color: Color { tone == "indigo" ? .indigo : Color(nsColor: BrandPalette.nsColor(tone)) }
+  var body: some View {
+    Label(burn.text, systemImage: "flame.fill").font(.system(size: 10)).monospacedDigit()
+      .foregroundStyle(color).padding(.horizontal, 4).padding(.vertical, 2)
+      .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 4))
+      .fixedSize().accessibilityLabel(burn.accessibilityLabel)
+  }
+}
+
 struct CompactWeekly: View {
   let model: CompactProvider
   let style: WeeklyStyle
   var details: String { (model.allowances + [model.weeklyCaption, model.weeklyReset ?? ""]).joined(separator: ". ") }
   var accessibilityText: String {
-    details + (model.paceTarget.map { ". Plan by tonight " + PresentationText.number($0) + "%" } ?? "")
+    details + (model.burn(window: "seven_day").map { ". " + $0.accessibilityLabel } ?? "") + (model.paceTarget.map { ". Plan by tonight " + PresentationText.number($0) + "%" } ?? "")
   }
   var body: some View {
     VStack(alignment: .leading, spacing: 3) {
-      if style == .bar { CompactWeeklyBar(model: model) }
+      if style == .bar {
+        HStack(spacing: 5) {
+          CompactWeeklyBar(model: model)
+          if let burn = model.burn(window: "seven_day") { BurnBadge(burn: burn, providerID: model.provider.id) }
+        }
+      } else if let burn = model.burn(window: "seven_day") { BurnBadge(burn: burn, providerID: model.provider.id) }
       caption
       if let extra = model.shortAllowance { Text(extra).font(.system(size: 10)).foregroundStyle(.secondary) }
     }.help(details).accessibilityElement(children: .combine).accessibilityLabel(accessibilityText)
@@ -151,13 +185,13 @@ struct CompactAttention: View {
     VStack(alignment: .leading, spacing: 4) {
       Text(model.title).font(.system(size: 12, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
       Text(model.detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-      if ["pause", "ask"].contains(model.presentation.verdict) {
+      if ["pause", "ask"].contains(model.presentation.verdict) || model.presentation.subagentsOnly {
         HStack(spacing: 5) {
           if let resume = model.resume {
             Button { store.send(resume) } label: {
               HStack(spacing: 5) {
                 if store.visible && store.resumingProviders.contains(resume.key) { ProgressView().controlSize(.small).tint(PearPalette.buttonLabelColor) }
-                Text(store.resumingProviders.contains(resume.key) ? "Resuming…" : model.manualOnly ? "Resume" : "Resume for 1 Hour")
+                Text(store.resumingProviders.contains(resume.key) ? "Resuming…" : model.resumeTitle)
               }
             }.buttonStyle(PearButtonStyle())
               .disabled(store.fixtureMode || !resume.eligible || store.blockedProviders.contains(resume.key))
@@ -166,7 +200,7 @@ struct CompactAttention: View {
               .perasKeyboardButton()
           }
           // Approval asks before each prompt; this button would turn that into a full pause, so it says so.
-          if let pause = model.pauseIndefinitely {
+          if let pause = model.pauseIndefinitely, !model.presentation.subagentsOnly {
             let asking = model.presentation.verdict == "ask"
             Button(asking ? "Pause Until Resumed" : "Keep Paused") { store.send(pause) }
               .disabled(store.fixtureMode || !pause.eligible || store.blockedProviders.contains(pause.key))

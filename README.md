@@ -11,7 +11,7 @@
 
 Peras watches Claude Code and Codex subscription usage, forecasts when your allowance will run out, and pauses guarded work at the lines you choose. On macOS, Clawd and the Codex companion walk back and forth above their usage bars, then stand still when paused. Spend the last of your week on purpose.
 
-> **0.4: early software for Claude Code and Codex.** The CLI and hooks are free, MIT-licensed and local, with no Peras account required. The Peras app is €4.99, or [build it yourself](#build-the-app-yourself). Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
+> **0.5: early software for Claude Code and Codex.** The CLI and hooks are free, MIT-licensed and local, with no Peras account required. The Peras app is €4.99, or [build it yourself](#build-the-app-yourself). Hit a bug or want a line Peras doesn't have? [Open an issue](https://github.com/Vertias3u/Peras/issues).
 > ⭐ **Star it** if it saves your week.
 
 ```sh
@@ -46,7 +46,7 @@ This week by chat (≈: shared out by what each spent; claude.ai use counts too)
   ≈ +12%    ~/code/blog  b81e04d7
   ≈ +5%     ~/code/app   c0ffee99
 
-Lines: weekly 75% warn · weekly 90% pause · 5-hour 95% warn · weekly pace warn (from 50%)
+Lines: weekly 75% warn · weekly 90% pause · 5-hour 95% warn · weekly pace warn (from 50%) · 5-hour +20% in 10 min warn
 
 Peras 🍐 watching ~/.codex
 
@@ -56,7 +56,7 @@ Peras 🍐 watching ~/.codex
 
 ✓ Under every line.
 
-Lines: weekly 75% warn · weekly 90% pause · 5-hour 95% warn · weekly pace warn (from 50%)
+Lines: weekly 75% warn · weekly 90% pause · 5-hour 95% warn · weekly pace warn (from 50%) · 5-hour +20% in 10 min warn
 ```
 
 Your status line in Claude Code gets the same, coloured by your own lines: `🍐 ⚠️ · 5h 24% · 7d 78% (full Thu 14:59) · this chat ≈+12%`
@@ -77,6 +77,10 @@ And a line can watch more than the raw %:
 
 - 📈 **Pace.** `peras set weekly pace pause` acts when the week is on track to run out *before it resets*, not after it already has.
 - 🎯 **Per prompt.** `peras set prompt 3 pause` stops one prompt from eating more than 3% of your week. Your next prompt starts fresh.
+- 🔥 **Burn rate.** `peras set 5h rate 15/5m pause` acts when the 5-hour window rises 15 points within 5 minutes, at any level. A pause holds until you resume or the window resets; a resume lets that burst go, and a new burst can stop it again. While any rate line is crossed, new subagents wait until the burst ends: the agent keeps working without them.
+- 🧑‍🤝‍🧑 **Subagents.** `peras set agents 3 ask` lets one prompt start 3 subagents and acts on the 4th. Subagents started by subagents count too, and so do subagents started at the same moment. Your next prompt starts fresh; a headless run with no prompt counts as one prompt. Only the new subagent is refused; the turn goes on.
+- 🔔 **Pause now from the notification.** A burn warning's notification has a Pause now button. In the app, a burn badge sits beside the bar while a window climbs fast.
+- 🤝 **Agent to agent.** When Claude Code runs `codex exec` while Codex is paused, the call is refused with Codex's reason, and the same for Codex running `claude -p`. Nothing to set up.
 - 🌙 **Part of the day.** `peras set 01:00-08:00 weekly 50 pause`: overnight runs stop at 50%, daytime keeps your normal lines.
 - 📁 **Per folder.** `peras set --here weekly 60 pause`: the side project stops at 60%, work goes on to 90%.
 
@@ -86,6 +90,7 @@ Defaults (all changeable):
 - weekly **90%** → pause
 - 5-hour **95%** → warn
 - weekly **on pace to run out early** → warn
+- 5-hour **+20 points in 10 minutes** → warn, and new subagents wait until the burst ends
 
 Run `peras update` to check npm for a newer published release, update the global CLI, and refresh the Claude/Codex hooks and SwiftBar menu you already installed. Your rules, pauses, history, and menu preferences stay in place. It does not install hooks for agents you haven't set up. `peras update --check` only reports availability. A newer local or development version is never downgraded to an older published release. If the CLI is already updated but the hook copies are older, `peras update` refreshes those copies too. Restart open agent sessions after an upgrade and review changed hooks in Codex if prompted. Updates use your npm global prefix; permission or network failures are reported, without automatic sudo.
 
@@ -103,6 +108,8 @@ peras history               # past weeks: peak, lines crossed, when it hit the w
 peras pause [1h|18:00]      # pause Claude Code now, for a while or until you resume
 peras resume [1h]           # lift a pause: for the rest of the window, or for 1h
 peras set weekly 85 pause   # a line: 5h|weekly, warn|ask|pause, 1-100|off
+peras set 5h rate 15/5m pause  # a burn line: points within minutes (default 10 min)
+peras set agents 3 ask      # act on a prompt's 4th subagent
 peras set reset             # back to the defaults
 peras menubar install --native --app ~/Downloads/Peras.app  # the Peras app draws the 🍐
 peras menubar install       # or the SwiftBar menu, with Pause / Resume
@@ -145,7 +152,7 @@ Hook memory from 0.4 (per-prompt baselines, recent sessions and pace latches) is
 The app's source is in [`native/`](native/), under the same MIT license as the rest. Buying it gets you a copy signed and notarized by Apple, and keeps Peras going; building it is fine too. You need macOS 13 or later, Node 18+, and Apple's command line tools (`xcode-select --install`):
 
 ```
-git clone --branch v0.4.0 https://github.com/Vertias3u/Peras && cd Peras
+git clone --branch v0.5.0 https://github.com/Vertias3u/Peras && cd Peras
 npm run build:app
 ```
 
@@ -273,6 +280,9 @@ On **macOS**, native pear notifications include **Open Status**. Pause/approval 
 - **The forecast is a straight line** from the last day's pace (or the week's average), and it waits until there's enough to go on. A quiet afternoon or a burst changes it.
 - **"By chat" is an estimate.** Your limit is one number for the whole account, so Peras shares each rise out by what each chat spent. claude.ai and the desktop app use the same limit and aren't seen.
 - **Per-prompt lines are account-wide.** Another chat running at the same time counts toward your prompt's rise, so it errs toward pausing.
+- **A burn line sees what the readings see.** During a burn Codex is read at most every 10 seconds. Claude's readings come from an interactive session's status line, which Peras asks to re-run every 10 seconds on Claude Code 2.1.97 and later (one short Node run per open session each time). A burn inside `claude -p` alone is seen late, and a burst shorter than the gap between two readings shows up as one jump.
+- **Agent to agent is matched by command.** `codex exec …` and `claude -p …` typed as commands are caught; a wrapper script, alias or `npx codex` isn't.
+- **Subagents are counted by tool name.** Claude Code's `Agent` (or `Task`) and Codex's `spawn_agent`. A subagent started some other way isn't counted.
 - **Changed your Node install?** Run `peras setup` again. If the hooks can't start node, they say so instead of passing silently.
 - **A guard rail, not a wall.** Hooks run inside Claude Code. Peras protects your own sessions; it is not security against a hostile process.
 - **Do not rely on a phone ping.** In our testing, Peras's Claude permission prompts could be approved through Remote Control but did not trigger a phone push notification. Peras sends its own desktop alert; phone delivery depends on Claude Code and your notification settings.

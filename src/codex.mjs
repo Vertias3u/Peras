@@ -1,3 +1,6 @@
+import { parseResetCredits, savedResets, savedResetsHint } from "./saved-resets.mjs";
+import { releaseSpawn, spawnContext } from "./spawn.mjs";
+import { withDelegation } from "./delegate.mjs";
 import { readPlanning } from "./planning.mjs";
 import { readBudgetRules, touchAllowanceSession } from "./allowances.mjs";
 import fs from "node:fs";
@@ -5,13 +8,13 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { readJson, writeJsonAtomic, perasHome, dirKey, installFile, context, readState, readWindow, windowFile, writeHookState, readInstall, writeInstall, readRules, resumableKeys } from "./store.mjs";
-import { evaluate, realDir } from "./rules.mjs";
-import { describe } from "./hook.mjs";
+import { evaluate, fastRise, realDir } from "./rules.mjs";
+import { describe, holdSpawn, spawnOnly } from "./hook.mjs";
 import { WINDOWS, windowText } from "./window.mjs";
 import { readUsage, trackReading, writeUsage } from "./usage.mjs";
 import { recordHookRun } from "./hook-health.mjs";
 import { preferences } from "./preferences.mjs";
-import { recordEvent } from "./events.mjs";
+import { burnData, recordEvent } from "./events.mjs";
 import { recordDenial } from "./receipts.mjs";
 
 export const codexDir = (env = process.env) => env.CODEX_HOME || path.join(env.HOME || os.homedir(), ".codex");
@@ -109,6 +112,8 @@ export function parseRateLimits(result, now = Date.now()) {
     if (!Number.isFinite(limit.usedPercent) || (limit.resetsAt != null && !Number.isFinite(limit.resetsAt))) throw malformed();
     reported.add(name);
     if (limit.resetsAt == null) continue;
+    const resetMs = limit.resetsAt * 1000;
+    if (!Number.isFinite(new Date(resetMs).getTime()) || resetMs > now + 365 * 86400_000) continue;
     reading[name] = { usedPct: Math.max(0, Math.min(100, limit.usedPercent)), resetsAt: limit.resetsAt, seenAt: now };
   }
   const absent = certain ? Object.keys(WINDOWS).filter((name) => !reported.has(name)) : [];
@@ -167,7 +172,7 @@ export async function refreshCodex(env = process.env, now = Date.now(), { force 
       const tracked = trackReading(readUsage(scoped), reading, { now });
       if (tracked.changed) writeUsage(scoped, tracked.usage);
     }
-    writeJsonAtomic(cachePath(env), { at: now, reading });
+    writeJsonAtomic(cachePath(env), { at: now, reading, savedResets: parseResetCredits(result) });
     if (failed) fs.rmSync(refreshStatePath(env), { force: true });
     return reading;
   } catch (error) {
@@ -234,6 +239,11 @@ export function removeCodex(env) {
   return { target, changed };
 }
 
+/** Last two readings in either window show a current fast rise. */
+export function hasFastRise(usage, now = Date.now()) {
+  return Object.keys(WINDOWS).some(name => fastRise(usage?.windows?.[name]?.pts, now));
+}
+
 export async function runCodexHook({ input, env = process.env, now = Date.now(), reader, notify = () => {} } = {}) {
   const scoped = codexEnv(env);
   let refreshError;
@@ -241,9 +251,10 @@ export async function runCodexHook({ input, env = process.env, now = Date.now(),
   try { touchAllowanceSession(scoped, String(input?.session_id ?? ""), input?.cwd, now); } catch { /* noted next call */ }
   // Prompt allowances need a current baseline at each prompt, and recent usage
   // at tool calls. The menu's minute-long cache could otherwise hide the rise.
-  const promptRule = readRules(scoped).some(rule => rule.kind === "prompt" && !rule.off) || readBudgetRules(scoped).length > 0 || Boolean(readPlanning(scoped).pacing);
+  const rules = readRules(scoped);
+  const promptRule = rules.some(rule => rule.kind === "prompt" && !rule.off) || readBudgetRules(scoped).length > 0 || Boolean(readPlanning(scoped).pacing);
   const force = promptRule && input?.hook_event_name === "UserPromptSubmit";
-  const maxAge = promptRule ? PROMPT_RULE_MS : CACHE_MS;
+  const maxAge = promptRule || rules.some(rule => rule.kind === "rate" && !rule.off) || hasFastRise(readUsage(scoped), now) ? PROMPT_RULE_MS : CACHE_MS;
   try { await refreshCodex(env, now, { reader, force, maxAge }); } catch (error) { refreshError = error; }
   const state = readState(scoped, now);
   const session = String(input?.session_id ?? "");
@@ -253,19 +264,30 @@ export async function runCodexHook({ input, env = process.env, now = Date.now(),
     state.prompts[session] = { id: now.toString(36), t: now, ...Object.fromEntries(Object.entries(ctx.window).map(([name, w]) => [name, w.usedPct])) };
     ctx.prompt = state.prompts[session];
   }
-  const { action, hit, hits } = evaluate(ctx);
+  ctx.spawn = { ...spawnContext(state, session, "codex", input, scoped, now), sessionStart: state.sessions[session]?.startedAt, session };
+  if (ctx.spawn.blocked) return holdSpawn({ what: ctx.spawn.blocked });
+  const { action, hit, hits, rateLatch } = evaluate(ctx);
+  state.rateLatch = rateLatch;
+  ctx.rateLatch = rateLatch;
   if (action === "pause" || action === "ask") {
     // The deny is the answer: bookkeeping, events and notifications after it can fail without letting the tool run.
     const d = describe(hit, now);
+    // A usage stop names a saved reset the user could spend; Peras never spends it.
+    const hint = USAGE_STOPS.includes(hit.kind) ? savedResetsHint(savedResets(env, now), now) : "";
     const deny = input?.hook_event_name === "PreToolUse"
-      ? { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `Peras ${action === "ask" ? "requires the user's OK" : "paused Codex"}: ${d.what}. ${d.lifts}. Stop and tell the user why.` } }
+      ? { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: spawnOnly(hit) ? `Peras is not starting new subagents: ${d.what}. ${d.lifts}. Continue without new subagents, or tell the user why you can't.` : `Peras ${action === "ask" ? "requires the user's OK" : "paused Codex"}: ${d.what}. ${d.lifts}.${hint} Stop and tell the user why.` } }
       : { systemMessage: `Peras: ${d.what}. ${d.lifts}.` };
     if (input?.hook_event_name === "PreToolUse") recordDenial(scoped, hit, now);
+    releaseSpawn(state, session, ctx.spawn, scoped);
     try { afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, notify }); } catch { /* the deny stands */ }
     return deny;
   }
-  return afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, notify, refreshError });
+  const out = afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, notify, refreshError });
+  return withDelegation(out, { provider: "codex", input, env, now });
 }
+
+// Stops that spending a saved reset would lift: the usage windows, not a hand pause or a subagent line.
+const USAGE_STOPS = ["window", "pace", "rate", "prompt"];
 
 function afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, notify, refreshError }) {
   recordHookRun(scoped, input?.hook_event_name, now);
@@ -275,9 +297,12 @@ function afterVerdict({ scoped, env, state, ctx, action, hit, hits, input, now, 
   const d = describe(hit, now);
   if (input?.hook_event_name !== "PreToolUse") return { systemMessage: `Peras: ${d.what}. ${d.lifts}.` };
   const notification = `${action}:${hit.key}`;
-  if (!state.notified.includes(notification) && hit.kind !== "manual") recordEvent(scoped, { kind: action === "warn" ? "warning" : action === "ask" ? "approval" : "pause", at: now, message: `${d.what}. ${d.lifts}.` });
-  if (!state.notified.includes(notification) && preferences(env)[action === "warn" ? "warnings" : "pauses"]) {
-    notify("Peras 🍐 Codex", `${action === "warn" ? "Warning" : "Paused"}: ${d.short}. ${d.lifts}.`, { env, provider: "codex", category: action === "warn" ? "status" : "pause", pauseKeys: resumableKeys(ctx, state) });
+  // A refused subagent isn't a pause: Codex goes on without it.
+  const told = spawnOnly(hit) ? "warn" : action;
+  if (!state.notified.includes(notification) && hit.kind !== "manual") recordEvent(scoped, { kind: told === "warn" ? "warning" : told === "ask" ? "approval" : "pause", at: now, message: `${d.what}. ${d.lifts}.`, data: burnData(hit) });
+  if (!state.notified.includes(notification) && preferences(env)[told === "warn" ? "warnings" : "pauses"]) {
+    const saved = told !== "warn" && USAGE_STOPS.includes(hit.kind) ? savedResets(env, now) : null;
+    notify("Peras 🍐 Codex", `${told === "warn" ? "Warning" : "Paused"}: ${d.short}. ${d.lifts}.${saved?.count ? ` ${saved.count} saved reset${saved.count === 1 ? "" : "s"} available.` : ""}`, { env, provider: "codex", category: told === "warn" ? (hit.kind === "rate" || hit.kind === "spawnhold" ? "burn" : "status") : "pause", pauseKeys: resumableKeys(ctx, state) });
   }
   if (action === "warn") {
     const tag = `warn:${hit.key}`;

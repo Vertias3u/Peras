@@ -40,7 +40,7 @@ export function readUsage(env) {
 
 export const writeUsage = (env, usage) => writeJsonAtomic(usageFile(env), usage);
 
-const sameWindow = (a, b) => Math.abs(a - b) < 3600;
+export const sameWindow = (a, b) => Math.abs(a - b) < 3600;
 
 /**
  * A status-line reading folded into the usage record.

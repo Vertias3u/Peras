@@ -125,8 +125,40 @@
         "lastReadingAtMs": 1899966100000,
         "atReset": true,
         "pauses": 0,
+        "burns": {
+          "count": 0,
+          "biggest": null
+        },
         "untilMs": 1900226800000
-      }
+      },
+      "burn": [
+        {
+          "window": "five_hour",
+          "rise": 0,
+          "spanMinutes": 10,
+          "sinceMs": null,
+          "line": {
+            "at": 20,
+            "action": "warn"
+          },
+          "state": "calm",
+          "emptyAtMs": null
+        },
+        {
+          "window": "seven_day",
+          "rise": 0,
+          "spanMinutes": 10,
+          "sinceMs": null,
+          "line": null,
+          "state": "calm",
+          "emptyAtMs": null
+        }
+      ],
+      "subagents": {
+        "prompt": 0,
+        "line": null
+      },
+      "savedResets": null
     },
     {
       "id": "codex",
@@ -230,7 +262,35 @@
           "expiresAtMs": null
         }
       ],
-      "recap": null
+      "recap": null,
+      "burn": [
+        {
+          "window": "five_hour",
+          "rise": 0,
+          "spanMinutes": 10,
+          "sinceMs": null,
+          "line": {
+            "at": 20,
+            "action": "warn"
+          },
+          "state": "calm",
+          "emptyAtMs": null
+        },
+        {
+          "window": "seven_day",
+          "rise": 0,
+          "spanMinutes": 10,
+          "sinceMs": null,
+          "line": null,
+          "state": "calm",
+          "emptyAtMs": null
+        }
+      ],
+      "subagents": {
+        "prompt": 0,
+        "line": null
+      },
+      "savedResets": null
     }
   ],
   "settings": {

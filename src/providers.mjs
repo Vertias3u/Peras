@@ -1,7 +1,8 @@
+import { savedResets, savedResetsText } from "./saved-resets.mjs";
 import { budgetText } from "./allowances.mjs";
 import fs from "node:fs";
 import { codexEnv, codexExecutable, inspectCodex, refreshCodex } from "./codex.mjs";
-import { context, readInstall, readState, readWindow, sessionVerdict } from "./store.mjs";
+import { context, readInstall, readState, readWindow, sessionVerdict, writeHookState } from "./store.mjs";
 import { readUsage } from "./usage.mjs";
 import { describe } from "./hook.mjs";
 import { windowText } from "./window.mjs";
@@ -50,9 +51,12 @@ export async function snapshot(env, now, { provider = "claude", refresh = false,
     ctx = { window: {}, rules: [], now, cwd, manualPause: state.manualPause, forecast: {}, resumed: state.resumed };
   }
   const verdict = sessionVerdict(ctx, state);
+  if (JSON.stringify(verdict.rateLatch) !== JSON.stringify(state.rateLatch)) {
+    state.rateLatch = ctx.rateLatch = writeHookState(scoped, { ...state, rateLatch: verdict.rateLatch }, now, { rateOnly: true });
+  }
   const reading = freshness(Object.keys(ctx.window).length ? ctx.window : stored, now);
   if (stored && Object.keys(stored).length && !Object.keys(ctx.window).length) reading.text += " · expired";
-  return { provider, label, env: scoped, ctx, usage, state, error, freshness: reading, verdict, health: hookHealth(env, provider, now) };
+  return { provider, label, env: scoped, ctx, usage, state, error, freshness: reading, verdict, health: hookHealth(env, provider, now), savedResets: provider === "codex" ? savedResets(env, now) : null };
 }
 
 export function statusText(s, now) {
@@ -62,6 +66,8 @@ export function statusText(s, now) {
   if (s.error) lines.push(`  Could not refresh: ${s.error}. Showing saved readings while their windows remain valid.`);
   if (verdict.action === "none") lines.push(Object.keys(ctx.window).length ? "  ✓ Under every active line." : "  Usage thresholds cannot be evaluated yet.");
   else lines.push(`  ${verdict.action.toUpperCase()}: ${describe(verdict.hit, now).what}. ${describe(verdict.hit, now).lifts}.`);
+  const saved = savedResetsText(s.savedResets, now);
+  if (saved) lines.push(`  ${saved} (spend it in Codex; Peras never does).`);
   if (s.provider === "codex" && !readInstall(s.env)) lines.push("  Run peras codex setup, then review /hooks in Codex.");
   return lines.join("\n");
 }

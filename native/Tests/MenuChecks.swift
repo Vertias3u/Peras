@@ -9,6 +9,146 @@ enum MenuChecks {
     let source = try Data(contentsOf: options.fixtureDirectory.appendingPathComponent("suggestion-pause.json"))
     let snapshot = try Snapshot.decode(source)
     func replacing(_ value: JSONValue, _ key: String, _ next: JSONValue) -> JSONValue { PresentationChecks.replacing(value, key, next) }
+    let baseProvider = snapshot.providers[0]
+    func optionalModel(_ key: String, _ value: JSONValue?) throws -> CompactProvider {
+      guard case .object(var fields) = baseProvider.payload else { throw SnapshotError.invalid("Expected provider") }
+      fields.removeValue(forKey: key)
+      if let value { fields[key] = value }
+      let rows = [JSONValue.object(fields)] + snapshot.providers.dropFirst().map(\.payload)
+      let decoded = try Snapshot.decode(JSONEncoder().encode(replacing(snapshot.raw, "providers", .array(rows))))
+      try check(decoded.providers.count == snapshot.providers.count && decoded.providers[0].windows == baseProvider.windows,
+        "optional \(key) preserves snapshot and usage")
+      return CompactProvider(provider: decoded.providers[0], generatedAtMs: decoded.generatedAtMs)
+    }
+    let burn: JSONValue = .object(["window": .string("five_hour"), "rise": .number(18), "spanMinutes": .number(10),
+      "sinceMs": .number(snapshot.generatedAtMs - 4 * 60_000 - 1000), "line": .null, "state": .string("rising")])
+    let badBurns: [JSONValue?] = [nil, .null, .string("bad"), .object([:]), .array([.null]), .array([.string("bad")])]
+      + [("rise", JSONValue.string("18")), ("rise", .number(-1)), ("spanMinutes", .number(0)),
+        ("spanMinutes", .number(301)), ("spanMinutes", .number(1.5)), ("spanMinutes", .string("4")),
+        ("sinceMs", .string("bad")), ("sinceMs", .number(-1)), ("window", .string("future")),
+        ("state", .string("future")), ("state", .number(1)), ("line", .bool(false)),
+        ("line", .object(["at": .number(-1), "action": .string("warn")])),
+        ("line", .object(["at": .number(3), "action": .string("future")]))].map { .array([replacing(burn, $0.0, $0.1)]) }
+    for value in badBurns {
+      let model = try optionalModel("burn", value)
+      try check(model.burn(window: "five_hour") == nil && model.burn(window: "seven_day") == nil, "absent/null/malformed burn draws nothing")
+    }
+    for state in ["rising", "stopped"] {
+      let model = try optionalModel("burn", .array([replacing(burn, "state", .string(state))]))
+      try check(model.burn(window: "five_hour")?.text == "+18 in 4 min" && model.burn(window: "five_hour")?.state == state,
+        "\(state) badge uses whole minutes on snapshot clock")
+      try check(model.burn(window: "five_hour")?.accessibilityLabel == "5-hour usage burning fast: up 18 points in 4 minutes", "burn accessibility names window and points")
+    }
+    let heldBurn = replacing(replacing(burn, "state", .string("stopped")), "measuredAtMs", .number(snapshot.generatedAtMs))
+    try check(BurnPresentation(heldBurn, generatedAtMs: snapshot.generatedAtMs + 11 * 60_000)?.text == "+18 in 4 min",
+      "review burn latch: stopped badge keeps the triggering interval")
+    let risingSnapshot = try Snapshot.decode(Data(contentsOf: options.fixtureDirectory.appendingPathComponent("burning-rising.json")))
+    let risingStore = FixtureStore(resources: resources, fixtureDirectory: options.fixtureDirectory, fixtureMode: true)
+    risingStore.apply(risingSnapshot)
+    let risingRow = CompactProviderRow(provider: risingSnapshot.providers[0], store: risingStore)
+    try check(risingRow.model.burn(window: "five_hour")?.state == "rising"
+      && risingRow.model.burn(window: "five_hour")?.text == "+22 in 2 min", "rising fixture shows its burn badge")
+    var countdownCalendar = Calendar(identifier: .gregorian)
+    countdownCalendar.timeZone = TimeZone(secondsFromGMT: 0)!; countdownCalendar.locale = Locale(identifier: "en_GB")
+    let fixtureNow = risingSnapshot.generatedAtMs
+    let countdown = risingRow.model.fiveHourCountdown(nowMs: fixtureNow, calendar: countdownCalendar)
+    try check(countdown?.text == "empty in ~7 min" && countdown?.line == "5-hour window empty in ~7 min at this rate"
+      && countdown?.accessibilityLabel == "5-hour window empty in about 7 minutes at this rate", "rising fixture countdown rounds on the fixture clock")
+    let savedCodex = CompactProvider(provider: risingSnapshot.providers[1], generatedAtMs: fixtureNow)
+    let savedText = savedCodex.savedResetsText(nowMs: fixtureNow, calendar: countdownCalendar)
+    try check(savedText == "1 saved reset · expires Mon 13:46", "Codex fixture shows its saved reset expiry: \(savedText ?? "nil")")
+    try check((savedText! as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 10)]).width <= 288,
+      "saved reset line fits the probe's 320-point menu with 16-point side padding")
+    let fastSnapshot = try Snapshot.decode(Data(contentsOf: options.fixtureDirectory.appendingPathComponent("burning-fast.json")))
+    let fast = CompactProvider(provider: fastSnapshot.providers[0], generatedAtMs: fastSnapshot.generatedAtMs)
+    try check(fast.burn(window: "five_hour")?.state == "stopped" && fast.fiveHourCountdown(nowMs: fixtureNow) == nil
+      && fast.fiveHourReset(nowMs: fixtureNow, calendar: countdownCalendar) == "resets 19:46", "stopped fixture keeps its reset instead of counting down")
+    for kind in ["agents", "spawnhold"] {
+      let stop: JSONValue = .object(["id": .string("spawn-stop"), "kind": .string(kind), "action": .string("pause"),
+        "scope": .string("global"), "project": .null, "at": .number(0), "used": .number(0), "unit": .string("count"), "expiresAtMs": .null])
+      let actions = baseProvider.payload["actions"].array.map { action in
+        action["op"].string == "resume" ? replacing(action, "lifts", .array([.string("spawn-stop")])) : action
+      }
+      let payload = replacing(replacing(replacing(baseProvider.payload, "reasons", .array([stop])),
+        "verdict", .object(["action": .string("warn"), "reason": .string("spawn-stop")])), "actions", .array(actions))
+      let model = CompactProvider(provider: ProviderSnapshot(id: baseProvider.id, payload: payload))
+      try check(model.resumeTitle == "Resume Subagents", "spawn-only resume names subagents")
+      try check(model.hasAttention && model.resume?.raw["params"]["duration"] == .null && model.title.contains("subagents"),
+        "review spawn resume: running agent exposes subagent attention and plain Resume for \(kind)")
+    }
+    let normal = try Snapshot.decode(Data(contentsOf: options.fixtureDirectory.appendingPathComponent("normal-usage.json")))
+    for provider in normal.providers {
+      let model = CompactProvider(provider: provider, generatedAtMs: normal.generatedAtMs)
+      try check(model.fiveHourCountdown(nowMs: normal.generatedAtMs) == nil && model.savedResetsText() == nil,
+        "normal fixture decodes without countdown or saved resets")
+    }
+    for value: JSONValue in [.null, .string("x"), .number(-1), .number(1.5)] {
+      let model = try optionalModel("burn", .array([replacing(burn, "emptyAtMs", value)]))
+      try check(model.burn(window: "five_hour")?.emptyAtMs == nil && model.burn(window: "five_hour")?.text == "+18 in 4 min",
+        "invalid or null empty time preserves the burn badge")
+    }
+    let absentEmpty = try optionalModel("burn", .array([burn]))
+    try check(absentEmpty.burn(window: "five_hour")?.emptyAtMs == nil && absentEmpty.fiveHourCountdown() == nil,
+      "older burn without empty time has no countdown")
+    func countdownAfter(_ milliseconds: Double) throws -> BurnCountdown? {
+      let model = try optionalModel("burn", .array([replacing(burn, "emptyAtMs", .number(fixtureNow + milliseconds))]))
+      return model.fiveHourCountdown(nowMs: fixtureNow, calendar: countdownCalendar)
+    }
+    try check(try countdownAfter(70_000)?.text == "empty in ~1 min", "under two rounded minutes uses one minute")
+    try check(try countdownAfter(3_570_000)?.text == "empty ~18:46", "rounded sixty minutes switches to clock form")
+    let clockCountdown = try countdownAfter(7_200_000)
+    try check(clockCountdown?.text == "empty ~19:46" && clockCountdown?.line == "5-hour window empty ~19:46 at this rate"
+      && clockCountdown?.accessibilityLabel == "5-hour window empty around 19:46 at this rate", "long countdown uses the same-day clock and accessibility")
+    try check(try countdownAfter(36_000_000)?.text == "empty ~Mon 03:46", "countdown on another day includes weekday")
+    let longest = try countdownAfter(36_000_000)!.line as NSString
+    try check(longest.size(withAttributes: [.font: NSFont.systemFont(ofSize: 10, weight: .medium)]).width <= 288, "the longest countdown line fits the row: \(longest)")
+    try check(try countdownAfter(0) == nil, "elapsed empty time has no countdown")
+    let saved: JSONValue = .object(["count": .number(1), "nextExpiresAtMs": .null])
+    for value: JSONValue? in [nil, .null, .string("bad"), .object([:]), replacing(saved, "count", .string("1")),
+      replacing(saved, "count", .number(-1)), replacing(saved, "count", .number(1.5)), replacing(saved, "count", .number(0)),
+      replacing(saved, "nextExpiresAtMs", .string("bad")), replacing(saved, "nextExpiresAtMs", .number(-1)), replacing(saved, "nextExpiresAtMs", .number(1.5))] {
+      let model = try optionalModel("savedResets", value)
+      let codex = CompactProvider(provider: ProviderSnapshot(id: "codex", payload: model.provider.payload))
+      try check(codex.savedResetsText() == nil, "absent/null/malformed/zero saved resets draw nothing")
+    }
+    let savedModel = try optionalModel("savedResets", saved)
+    try check(savedModel.savedResetsText() == nil, "saved resets never show on Claude")
+    let savedOne = SavedResetsPresentation(saved)
+    let savedTwo = SavedResetsPresentation(replacing(replacing(saved, "count", .number(2)), "nextExpiresAtMs", .number(fixtureNow + 3_600_000)))
+    try check(savedOne?.text(nowMs: fixtureNow, calendar: countdownCalendar) == "1 saved reset"
+      && savedTwo?.text(nowMs: fixtureNow, calendar: countdownCalendar) == "2 saved resets · next expires 18:46", "saved resets handle null expiry, plural and same-day clock")
+    if let badge = risingRow.model.burn(window: "five_hour") {
+      try check(BurnBadge(burn: badge, providerID: risingRow.provider.id).tone == "claude",
+        "rising badge uses the provider tone")
+      let stoppedBurn = BurnPresentation(replacing(burn, "state", .string("stopped")), generatedAtMs: snapshot.generatedAtMs)!
+      try check(BurnBadge(burn: stoppedBurn, providerID: "claude").tone == "indigo", "stopped badge retains indigo")
+    }
+    try check(!risingRow.stopped && risingRow.model.hasAttention && risingRow.model.resumeTitle == "Resume Subagents"
+      && risingRow.model.resume?.raw["params"]["duration"] == .null,
+      "a default burn warning keeps running while its spawn hold offers Resume Subagents")
+    let warningPayload = replacing(replacing(risingRow.provider.payload, "reasons",
+      .array(risingRow.provider.payload["reasons"].array.filter { $0["action"].string == "warn" })), "actions",
+      .array(risingRow.provider.payload["actions"].array.filter { $0["op"].string != "resume" }))
+    let warningOnly = CompactProvider(provider: ProviderSnapshot(id: risingRow.provider.id, payload: warningPayload))
+    try check(!warningOnly.hasAttention && warningOnly.resume == nil, "a burn warning without a spawn hold has no resume card")
+    try check(risingRow.model.subagents == "1 subagent this prompt", "rising fixture shows one subagent without a line")
+    let calm = try optionalModel("burn", .array([replacing(burn, "state", .string("calm"))]))
+    try check(calm.burn(window: "five_hour") == nil, "calm burn stays hidden")
+    let weeklyBurn = replacing(replacing(replacing(burn, "window", .string("seven_day")), "sinceMs", .null), "rise", .number(18.25))
+    let weeklyModel = try optionalModel("burn", .array([weeklyBurn, burn]))
+    try check(weeklyModel.burn(window: "seven_day")?.text == "+18.3 in 10 min" && weeklyModel.burn(window: "five_hour") != nil,
+      "each window gets its own badge; null since uses span and rise uses point rounding")
+    try check(BurnPresentation(replacing(burn, "sinceMs", .number(snapshot.generatedAtMs)), generatedAtMs: snapshot.generatedAtMs)?.text == "+18 in 1 min", "burn minutes have a minimum of one")
+    let subagents: JSONValue = .object(["prompt": .number(3), "line": .number(3)])
+    for value: JSONValue? in [nil, .null, .string("bad"), .object([:]), replacing(subagents, "prompt", .number(-1)),
+      replacing(subagents, "prompt", .number(1.5)), replacing(subagents, "prompt", .string("3")),
+      replacing(subagents, "line", .string("3")), replacing(subagents, "line", .number(1.5)), replacing(subagents, "prompt", .number(0))] {
+      let model = try optionalModel("subagents", value)
+      try check(model.subagents == nil, "absent/null/malformed/zero subagents draw nothing")
+    }
+    let plural = try optionalModel("subagents", subagents)
+    let singular = try optionalModel("subagents", replacing(replacing(subagents, "prompt", .number(1)), "line", .null))
+    try check(plural.subagents == "3 subagents this prompt · line 3" && singular.subagents == "1 subagent this prompt", "subagent singular/plural and optional line")
     let legacy = replacing(snapshot.raw["settings"], "weeklyStyle", .null)
     try check(MenuSettings(raw: legacy).weeklyStyle == .bar, "legacy weekly true defaults to Bar")
     let off = replacing(legacy, "preferences", replacing(legacy["preferences"], "weekly", .bool(false)))

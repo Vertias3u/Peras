@@ -80,3 +80,28 @@ test("hooks that turn every hook off are reported", () => {
   fs.writeFileSync(settingsPath(env), JSON.stringify({ disableAllHooks: true }));
   assert.equal(install({ env, command: CMD }).hooksDisabled, true);
 });
+
+test("status line refresh: 10 s on Claude Code 2.1.97+, a shorter one of the user's kept, nothing on older versions", () => {
+  const { env } = sandbox();
+  const command = '"node" "/x/.peras/app/bin/peras.mjs"';
+  const line = () => JSON.parse(fs.readFileSync(settingsPath(env), "utf8")).statusLine;
+  install({ env, command, runningClaude: "2.1.96" });
+  assert.equal(line().refreshInterval, undefined, "older Claude Code: no key it may refuse");
+  install({ env, command, runningClaude: "2.1.97" });
+  assert.equal(line().refreshInterval, 10);
+  install({ env, command, runningClaude: null });
+  assert.equal(line().refreshInterval, 10, "version unknown: leave it as it is");
+  install({ env, command, runningClaude: "2.1.50" });
+  assert.equal(line().refreshInterval, undefined, "downgraded: Peras's own interval comes out");
+  uninstall({ env });
+  // The user's own status line with its own interval.
+  for (const [mine, want] of [[5, 5], [30, 10]]) {
+    fs.writeFileSync(settingsPath(env), JSON.stringify({ statusLine: { type: "command", command: "my-line", refreshInterval: mine } }));
+    install({ env, command, runningClaude: "2.1.311" });
+    assert.equal(line().refreshInterval, want);
+    install({ env, command, runningClaude: "2.1.50" });
+    assert.equal(line().refreshInterval, want, "an interval the user set is never removed");
+    uninstall({ env });
+    assert.deepEqual(line(), { type: "command", command: "my-line", refreshInterval: mine }, "theirs comes back as it was");
+  }
+});

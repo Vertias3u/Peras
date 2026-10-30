@@ -31,6 +31,81 @@ struct DiscoveryLink: Identifiable, Equatable {
     } ?? []
   }
 }
+struct BurnPresentation {
+  let window: String
+  let rise: Double
+  let minutes: Double
+  let state: String
+  let emptyAtMs: Double?
+  init?(_ raw: JSONValue, generatedAtMs: Double) {
+    guard let window = raw["window"].string, ["five_hour", "seven_day"].contains(window),
+      let rise = raw["rise"].number, rise.isFinite, rise >= 0,
+      let span = raw["spanMinutes"].number, (1...300).contains(span), span.rounded() == span,
+      let state = raw["state"].string, ["calm", "rising", "stopped"].contains(state) else { return nil }
+    let since: Double?
+    if raw["sinceMs"] == .null { since = nil }
+    else if let value = raw["sinceMs"].number, value.isFinite, value >= 0, value.rounded() == value { since = value }
+    else { return nil }
+    if raw["line"] != .null {
+      guard let at = raw["line"]["at"].number, at.isFinite, at >= 0,
+        let action = raw["line"]["action"].string, ["warn", "ask", "pause"].contains(action) else { return nil }
+    }
+    let empty = raw["emptyAtMs"].number
+    emptyAtMs = empty.flatMap { $0.isFinite && $0 >= 0 && $0.rounded() == $0 ? $0 : nil }
+    self.window = window; self.rise = rise; self.state = state
+    let measured = raw["measuredAtMs"].number
+    let at = measured.flatMap { $0.isFinite && $0 >= 0 && $0 <= generatedAtMs && $0.rounded() == $0 ? $0 : nil } ?? generatedAtMs
+    minutes = since.map { max(1, ((at - $0) / 60_000).rounded(.down)) } ?? span
+  }
+  var text: String { "+" + PresentationText.number(rise) + " in " + String(format: "%.0f", minutes) + " min" }
+  var accessibilityLabel: String {
+    (window == "five_hour" ? "5-hour" : "Weekly") + " usage burning fast: up " + PresentationText.number(rise)
+      + " points in " + String(format: "%.0f", minutes) + (minutes == 1 ? " minute" : " minutes")
+  }
+}
+struct BurnCountdown {
+  let text: String
+  let accessibilityLabel: String
+  // Its own line under the bars: the header has no room beside the burn badge.
+  var line: String { "5-hour window " + text + " at this rate" }
+}
+struct SavedResetsPresentation {
+  let count: Int
+  let nextExpiresAtMs: Double?
+  init?(_ raw: JSONValue) {
+    guard let count = raw["count"].number, count.isFinite, count >= 0,
+      count.rounded() == count, count <= Double(Int.max).nextDown else { return nil }
+    let expiry: Double?
+    if raw["nextExpiresAtMs"] == .null { expiry = nil }
+    else if let value = raw["nextExpiresAtMs"].number, value.isFinite, value >= 0, value.rounded() == value { expiry = value }
+    else { return nil }
+    self.count = Int(count); nextExpiresAtMs = expiry
+  }
+  func text(nowMs: Double, calendar: Calendar) -> String? {
+    guard count > 0 else { return nil }
+    let title = "\(count) " + (count == 1 ? "saved reset" : "saved resets")
+    guard let expiry = nextExpiresAtMs else { return title }
+    return title + (count == 1 ? " · expires " : " · next expires ") + CompactTime.clock(expiry, nowMs: nowMs, calendar: calendar)
+  }
+}
+struct SubagentsPresentation {
+  let prompt: Int
+  let line: Int?
+  init?(_ raw: JSONValue) {
+    guard let prompt = raw["prompt"].number, prompt.isFinite, prompt >= 0,
+      prompt.rounded() == prompt, prompt <= Double(Int32.max) else { return nil }
+    let line: Int?
+    if raw["line"] == .null { line = nil }
+    else if let value = raw["line"].number, value.isFinite, value.rounded() == value,
+      value >= Double(Int32.min), value <= Double(Int32.max) { line = Int(value) }
+    else { return nil }
+    self.prompt = Int(prompt); self.line = line
+  }
+  var text: String? {
+    guard prompt >= 1 else { return nil }
+    return "\(prompt) " + (prompt == 1 ? "subagent" : "subagents") + " this prompt" + (line.map { " · line \($0)" } ?? "")
+  }
+}
 struct CompactProvider {
   let provider: ProviderSnapshot
   // The snapshot's own clock, so fixture readings from another year still read as "today".
@@ -38,10 +113,15 @@ struct CompactProvider {
   var presentation: ProviderPresentation { ProviderPresentation(provider: provider) }
   var window: WindowPresentation { WindowPresentation(provider.windows.first { $0["window"].string == "five_hour" } ?? .null, window: "five_hour") }
   var weekly: WindowPresentation { WindowPresentation(provider.windows.first { $0["window"].string == "seven_day" } ?? .null, window: "seven_day") }
+  func burn(window: String) -> BurnPresentation? {
+    provider.payload["burn"].array.compactMap { BurnPresentation($0, generatedAtMs: generatedAtMs) }
+      .first { $0.window == window && $0.state != "calm" }
+  }
+  var subagents: String? { SubagentsPresentation(provider.payload["subagents"])?.text }
   var health: String { provider.payload["health"]["state"].string ?? "unverified" }
   // "unverified" is a live guard seen for these hooks, just not in the last 15 minutes: an idle agent, not a setup problem.
   var needsHealth: Bool { !["active", "unverified"].contains(health) }
-  var hasAttention: Bool { ["pause", "ask"].contains(presentation.verdict) || needsHealth }
+  var hasAttention: Bool { ["pause", "ask"].contains(presentation.verdict) || presentation.subagentsOnly || needsHealth }
   var tone: String {
     if presentation.verdict == "pause" { return "indigo" }
     if presentation.verdict == "ask" { return "blue" }
@@ -57,6 +137,7 @@ struct CompactProvider {
     return "grey"
   }
   var title: String {
+    if presentation.subagentsOnly { return provider.label + " · new subagents held" }
     if ["pause", "ask"].contains(presentation.verdict) {
       let name = provider.label
       if presentation.projectOnly { return name + (presentation.verdict == "ask" ? " needs project approval" : " is paused for this project") }
@@ -84,10 +165,13 @@ struct CompactProvider {
     let usedText = PresentationText.number(used), atText = PresentationText.number(at)
     switch reason.raw["unit"].string {
     case "percent": return usedText + "% used, past the " + atText + "% line"
+    case "count": return usedText + " subagents this prompt, line " + atText
     case "points":
       switch reason.raw["kind"].string {
       case "daily": return "Today’s allowance is used up (" + usedText + " of " + atText + ")"
       case "prompt": return "This prompt’s allowance is used up (" + usedText + " of " + atText + ")"
+      case "rate": return "Rose " + usedText + " points, past the " + atText + "-point burn line"
+      case "spawnhold": return "No new subagents while it burns (+" + usedText + " points)"
       default: return usedText + " of " + atText + " used"
       }
     default: return nil
@@ -107,8 +191,9 @@ struct CompactProvider {
     return !lifted.isEmpty && lifted.allSatisfy(manual.contains)
   }
   var resume: BridgeOffer? {
-    presentation.offers.first { $0.raw["op"].string == "resume" && (manualOnly ? $0.raw["params"]["duration"] == .null : $0.raw["params"]["duration"].string == "1h") }
+    presentation.offers.first { $0.raw["op"].string == "resume" && (manualOnly || presentation.subagentsOnly ? $0.raw["params"]["duration"] == .null : $0.raw["params"]["duration"].string == "1h") }
   }
+  var resumeTitle: String { presentation.subagentsOnly ? "Resume Subagents" : manualOnly ? "Resume" : "Resume for 1 Hour" }
   var pauseIndefinitely: BridgeOffer? { presentation.offers.first { offer in
     guard offer.raw["op"].string == "pause", case .null = offer.raw["params"]["duration"] else { return false }
     return true
@@ -153,6 +238,24 @@ struct CompactProvider {
     let sameDay = calendar.isDate(date, inSameDayAs: Date(timeIntervalSince1970: now / 1000))
     return "resets " + CompactTime.formatter(sameDay ? "jmm" : "EEEjmm", calendar: calendar).string(from: date)
   }
+  func fiveHourCountdown(nowMs: Double? = nil, calendar: Calendar = .current) -> BurnCountdown? {
+    let now = nowMs ?? max(Date().timeIntervalSince1970 * 1000, generatedAtMs)
+    guard let burn = burn(window: "five_hour"), burn.state == "rising", let empty = burn.emptyAtMs, empty > now else { return nil }
+    let minutes = max(1, ((empty - now) / 60_000).rounded())
+    if minutes < 60 {
+      let value = String(format: "%.0f", minutes)
+      return BurnCountdown(text: "empty in ~" + value + " min",
+        accessibilityLabel: "5-hour window empty in about " + value + (minutes == 1 ? " minute" : " minutes") + " at this rate")
+    }
+    let clock = CompactTime.clock(empty, nowMs: now, calendar: calendar)
+    return BurnCountdown(text: "empty ~" + clock,
+      accessibilityLabel: "5-hour window empty around " + clock + " at this rate")
+  }
+  func savedResetsText(nowMs: Double? = nil, calendar: Calendar = .current) -> String? {
+    guard provider.id == "codex" else { return nil }
+    return SavedResetsPresentation(provider.payload["savedResets"])?.text(
+      nowMs: nowMs ?? max(Date().timeIntervalSince1970 * 1000, generatedAtMs), calendar: calendar)
+  }
   var shortAllowance: String? {
     guard let raw = provider.payload["planning"]["meters"].array.first(where: { ($0["extra"].number ?? 0) > 0 }) else { return nil }
     return "+" + PresentationText.number(raw["extra"].number!) + " extra"
@@ -166,6 +269,11 @@ enum CompactTime {
     formatter.calendar = calendar; formatter.timeZone = calendar.timeZone; formatter.locale = locale
     formatter.dateFormat = DateFormatter.dateFormat(fromTemplate: template, options: 0, locale: locale)
     return formatter
+  }
+  static func clock(_ ms: Double, nowMs: Double, calendar: Calendar) -> String {
+    let date = Date(timeIntervalSince1970: ms / 1000)
+    let sameDay = calendar.isDate(date, inSameDayAs: Date(timeIntervalSince1970: nowMs / 1000))
+    return formatter(sameDay ? "jmm" : "EEEjmm", calendar: calendar).string(from: date)
   }
   // "today 18:37", "at midnight", "tomorrow 09:00", "Wed 17:46", then "17 Mar 18:37".
   // A lift time already behind us (an older snapshot) reads "now", never a date that looks ahead.

@@ -44,6 +44,14 @@ import SwiftUI
       ("high-contrast-simulated", "normal-usage", "bar", .accessibilityHighContrastAqua, true, false),
       ("reduce-transparency-simulated", "normal-usage", "bar", .aqua, false, true),
       ("weekly-recap", "weekly-recap", "bar", .aqua, false, false),
+      ("burning-fast", "burning-fast", "bar", .aqua, false, false),
+      ("burning-fast-dark", "burning-fast", "bar", .darkAqua, false, false),
+      ("burning-fast-high-contrast-simulated", "burning-fast", "bar", .accessibilityHighContrastAqua, true, false),
+      ("burning-fast-reduce-transparency-simulated", "burning-fast", "bar", .aqua, false, true),
+      ("burning-rising", "burning-rising", "bar", .aqua, false, false),
+      ("burning-rising-dark", "burning-rising", "bar", .darkAqua, false, false),
+      ("burning-rising-high-contrast-simulated", "burning-rising", "bar", .accessibilityHighContrastAqua, true, false),
+      ("burning-rising-reduce-transparency-simulated", "burning-rising", "bar", .aqua, false, true),
     ]
     init(delegate: AppDelegate) { self.delegate = delegate; store = delegate.store }
     func start() {
